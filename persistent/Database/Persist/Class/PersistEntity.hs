@@ -1,8 +1,16 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
+
 module Database.Persist.Class.PersistEntity
     ( PersistEntity (..)
     , Update (..)
@@ -20,25 +28,39 @@ module Database.Persist.Class.PersistEntity
       -- * PersistField based on other typeclasses
     , toPersistValueJSON, fromPersistValueJSON
     , toPersistValueEnum, fromPersistValueEnum
+      -- * Support for @OverloadedLabels@ with 'EntityField'
+    , SymbolToField (..)
     ) where
 
-import Data.Aeson (ToJSON (..), FromJSON (..), fromJSON, object, (.:), (.=), Value (Object))
+import Data.Aeson
+       ( FromJSON(..)
+       , ToJSON(..)
+       , Value(Object)
+       , fromJSON
+       , object
+       , withObject
+       , (.:)
+       , (.=)
+       )
 import qualified Data.Aeson.Parser as AP
-import Data.Aeson.Types (Parser,Result(Error,Success))
 import Data.Aeson.Text (encodeToTextBuilder)
+import Data.Aeson.Types (Parser, Result(Error, Success))
 import Data.Attoparsec.ByteString (parseOnly)
 import qualified Data.HashMap.Strict as HM
+import Data.List.NonEmpty (NonEmpty(..))
 import Data.Maybe (isJust)
-import Data.Monoid (mappend)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as LT
 import qualified Data.Text.Lazy.Builder as TB
-import Data.Typeable (Typeable)
 import GHC.Generics
+import GHC.OverloadedLabels
+import GHC.TypeLits
+import Data.Kind (Type)
 
 import Database.Persist.Class.PersistField
+import Database.Persist.Names
 import Database.Persist.Types.Base
 
 -- | Persistent serialized Haskell records to the database.
@@ -72,11 +94,15 @@ class ( PersistField (Key record), ToJSON (Key record), FromJSON (Key record)
     persistIdField :: EntityField record (Key record)
 
     -- | Retrieve the 'EntityDef' meta-data for the record.
-    entityDef :: Monad m => m record -> EntityDef
+    entityDef :: proxy record -> EntityDef
 
     -- | An 'EntityField' is parameterised by the Haskell record it belongs to
     -- and the additional type of that field.
-    data EntityField record :: * -> *
+    --
+    -- As of @persistent-2.11.0.0@, it's possible to use the @OverloadedLabels@
+    -- language extension to refer to 'EntityField' values polymorphically. See
+    -- the documentation on 'SymbolToField' for more information.
+    data EntityField record :: Type -> Type
     -- | Return meta-data for a given 'EntityField'.
     persistFieldDef :: EntityField record typ -> FieldDef
     -- | A meta-operation to get the database fields of a record.
@@ -89,13 +115,22 @@ class ( PersistField (Key record), ToJSON (Key record), FromJSON (Key record)
     -- | A meta operation to retrieve all the 'Unique' keys.
     persistUniqueKeys :: record -> [Unique record]
     -- | A lower level operation.
-    persistUniqueToFieldNames :: Unique record -> [(HaskellName, DBName)]
+    persistUniqueToFieldNames :: Unique record -> NonEmpty (FieldNameHS, FieldNameDB)
     -- | A lower level operation.
     persistUniqueToValues :: Unique record -> [PersistValue]
 
     -- | Use a 'PersistField' as a lens.
     fieldLens :: EntityField record field
               -> (forall f. Functor f => (field -> f field) -> Entity record -> f (Entity record))
+
+    -- | Extract a @'Key' record@ from a @record@ value. Currently, this is
+    -- only defined for entities using the @Primary@ syntax for
+    -- natural/composite keys. In a future version of @persistent@ which
+    -- incorporates the ID directly into the entity, this will always be Just.
+    --
+    -- @since 2.11.0.0
+    keyFromRecordM :: Maybe (record -> Key record)
+    keyFromRecordM = Nothing
 
 type family BackendSpecificUpdate backend record
 
@@ -104,7 +139,7 @@ type family BackendSpecificUpdate backend record
 recordName
     :: (PersistEntity record)
     => record -> Text
-recordName = unHaskellName . entityHaskell . entityDef . Just
+recordName = unEntityNameHS . entityHaskell . entityDef . Just
 
 -- | Updating a database entity.
 --
@@ -191,7 +226,6 @@ data FilterValue typ where
 data Entity record =
     Entity { entityKey :: Key record
            , entityVal :: record }
-    deriving Typeable
 
 deriving instance (Generic (Key record), Generic record) => Generic (Entity record)
 deriving instance (Eq (Key record), Eq record) => Eq (Entity record)
@@ -254,8 +288,8 @@ keyValueEntityFromJSON _ = fail "keyValueEntityFromJSON: not an object"
 -- @
 entityIdToJSON :: (PersistEntity record, ToJSON record) => Entity record -> Value
 entityIdToJSON (Entity key value) = case toJSON value of
-    Object o -> Object $ HM.insert "id" (toJSON key) o
-    x -> x
+        Object o -> Object $ HM.insert "id" (toJSON key) o
+        x -> x
 
 -- | Predefined @parseJSON@. The input JSON looks like
 -- @{"id": 1, "name": ...}@.
@@ -267,8 +301,14 @@ entityIdToJSON (Entity key value) = case toJSON value of
 --     parseJSON = entityIdFromJSON
 -- @
 entityIdFromJSON :: (PersistEntity record, FromJSON record) => Value -> Parser (Entity record)
-entityIdFromJSON value@(Object o) = Entity <$> o .: "id" <*> parseJSON value
-entityIdFromJSON _ = fail "entityIdFromJSON: not an object"
+entityIdFromJSON = withObject "entityIdFromJSON" $ \o -> do
+    val <- parseJSON (Object o)
+    k <- case keyFromRecordM of
+        Nothing ->
+            o .: "id"
+        Just func ->
+            pure $ func val
+    pure $ Entity k val
 
 instance (PersistEntity record, PersistField record, PersistField (Key record))
   => PersistField (Entity record) where
@@ -277,7 +317,7 @@ instance (PersistEntity record, PersistField record, PersistField (Key record))
         _ -> error $ T.unpack $ errMsg "expected PersistMap"
 
     fromPersistValue (PersistMap alist) = case after of
-        [] -> Left $ errMsg $ "did not find " `Data.Monoid.mappend` idField `mappend` " field"
+        [] -> Left $ errMsg $ "did not find " `mappend` idField `mappend` " field"
         ("_id", kv):afterRest ->
             fromPersistValue (PersistMap (before ++ afterRest)) >>= \record ->
                 keyFromValues [kv] >>= \k ->
@@ -378,3 +418,34 @@ fromPersistValueEnum v = fromPersistValue v >>= go
                  then Right res
                  else Left ("The number " `mappend` T.pack (show i) `mappend` " was out of the "
                   `mappend` "allowed bounds for an enum type")
+
+-- | This type class is used with the @OverloadedLabels@ extension to
+-- provide a more convenient means of using the 'EntityField' type.
+-- 'EntityField' definitions are prefixed with the type name to avoid
+-- ambiguity, but this ambiguity can result in verbose code.
+--
+-- If you have a table @User@ with a @name Text@ field, then the
+-- corresponding 'EntityField' is @UserName@. With this, we can write
+-- @#name :: 'EntityField' User Text@.
+--
+-- What's more fun is that the type is more general: it's actually
+-- @
+-- #name
+--     :: ('SymbolToField' "name" rec typ)
+--     => EntityField rec typ
+-- @
+--
+-- Which means it is *polymorphic* over the actual record. This allows you
+-- to write code that can be generic over the tables, provided they have
+-- the right fields.
+--
+-- @since 2.11.0.0
+class SymbolToField (sym :: Symbol) rec typ | sym rec -> typ where
+    symbolToField :: EntityField rec typ
+
+-- | This instance delegates to 'SymbolToField' to provide
+-- @OverloadedLabels@ support to the 'EntityField' type.
+--
+-- @since 2.11.0.0
+instance SymbolToField sym rec typ => IsLabel sym (EntityField rec typ) where
+    fromLabel = symbolToField @sym

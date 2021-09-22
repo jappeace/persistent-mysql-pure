@@ -1,5 +1,81 @@
 # Changelog for persistent-postgresql
 
+## 2.13.1.0
+
+* [#1305](https://github.com/yesodweb/persistent/pull/1305)
+  * Add `RawPostgresql` wrapper, which exposes the underlying Postgres connection used
+    to construct a `SqlBackend`.
+
+## 2.13.0.3
+
+* [#1290](https://github.com/yesodweb/persistent/pull/1290)
+    * Fix the code path for adding references to previously defined columns.
+
+## 2.13.0.2
+
+* Actually release the SafeTORemove fix
+
+## 2.13.0.1
+
+* [#1275](https://github.com/yesodweb/persistent/pull/1275)
+    * Fix `SafeToRemove`
+
+## 2.13.0.0
+
+* [#1225](https://github.com/yesodweb/persistent/pull/1225)
+    * Support `persistent-2.13.0.0` making SQlBackend internal
+
+# 2.12.1.1
+
+* [#1235](https://github.com/yesodweb/persistent/pull/1235)
+    * `upsertWhere` and `upsertManyWhere` only worked in cases where a `Primary`
+      key was defined on a record, and no other uniqueness constraints. They
+      have been fixed to only work with records that have a single Uniqueness
+      constraint defined.
+
+## 2.12.1.0
+
+* Added `upsertWhere` and `upsertManyWhere` to `persistent-postgresql`.  [#1222](https://github.com/yesodweb/persistent/pull/1222).
+
+## 2.12.0.0
+
+* Decomposed `HaskellName` into `ConstraintNameHS`, `EntityNameHS`, `FieldNameHS`. Decomposed `DBName` into `ConstraintNameDB`, `EntityNameDB`, `FieldNameDB` respectively. [#1174](https://github.com/yesodweb/persistent/pull/1174)
+* Fix XML conversion [#1192](https://github.com/yesodweb/persistent/pull/1192)
+
+##  2.11.0.1
+* Fix foreign key migrations [#1167] https://github.com/yesodweb/persistent/pull/1167
+  * Fix a bug where a foreign key of a field to its table was ignored.
+  * Fix a bug where a altering details of a foreign key didn't trigger a migration
+
+##  2.11.0.0
+
+* Foreign Key improvements [#1121] https://github.com/yesodweb/persistent/pull/1121
+  * It is now supported to refer to a table with an auto generated Primary Kay
+  * It is now supported to refer to non-primary fields, using the keyword `References`
+* Implement interval support. [#1053](https://github.com/yesodweb/persistent/pull/1053)
+* [#1060](https://github.com/yesodweb/persistent/pull/1060)
+  * The QuasiQuoter now supports `OnDelete` and `OnUpdate` cascade options.
+* Handle foreign key constraint names over 63 characters. See [#996](https://github.com/yesodweb/persistent/pull/996) for details.
+* Fix a bug in `upsertSql` query which had not been discovered previously because the query wasn't actually used. [#856](https://github.com/yesodweb/persistent/pull/856)
+* [#1072](https://github.com/yesodweb/persistent/pull/1072) Refactored `test/JSONTest.hs` to use `hspec`
+  * added `runConn_` to run a db connection and return result
+  * Renamed `db` to `runConnAssert` in `test/PgInit.hs` for clarity
+  * Ran `test/ArrayAggTest.hs` (which was previously written but not being run)
+* Remove unnecessary deriving of Typeable [#1114](https://github.com/yesodweb/persistent/pull/1114)
+* Add support for configuring the number of stripes and idle timeout for connection pools [#1098](https://github.com/yesodweb/persistent/pull/1098)
+	* `PostgresConf` has two new fields to configure these values.
+		* Its `FromJSON` instance will default stripes to 1 and idle timeout to 600 seconds
+		* If you're constructing a `PostgresConf` manually, this is a breaking change
+	* Add `createPostgresqlPoolWithConf` and `withPostgresqlPoolWithConf`, which take a `PostgresConf` for the new configuration.
+
+## 2.10.1.2
+
+* Fix issue with multiple foreign keys on single column. [#1010](https://github.com/yesodweb/persistent/pull/1010)
+
+## 2.10.1.1
+
+* Compatibility with latest persistent-template for test suite [#1002](https://github.com/yesodweb/persistent/pull/1002/files)
+
 ## 2.10.1
 
 * Added support for the `constraint=` attribute to the Postgresql backend. [#979](https://github.com/yesodweb/persistent/pull/979)

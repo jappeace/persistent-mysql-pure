@@ -127,7 +127,7 @@ instance Binary BinPersistValue where
         put x
 
     put (BinPersistValue (PersistArray _)) = throw $ NotSupportedValueType "PersistArray"
-    put (BinPersistValue (PersistDbSpecific _)) = throw $ NotSupportedValueType "PersistDbSpecific"
+    put (BinPersistValue (PersistLiteral_ _ _)) = throw $ NotSupportedValueType "PersistLiteral_"
     put (BinPersistValue (PersistObjectId _)) = throw $ NotSupportedValueType "PersistObjectId"
 
     get = do

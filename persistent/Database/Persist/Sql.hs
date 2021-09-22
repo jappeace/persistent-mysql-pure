@@ -1,39 +1,74 @@
+-- | This module is the primary entry point if you're working with @persistent@
+-- on a SQL database.
+--
+-- = Getting Started
+--
+-- First, you'll want to define your database entities. You can do that with
+-- "Database.Persist.Quasi."
+--
+-- Then, you'll use the operations
 module Database.Persist.Sql
-    ( module Database.Persist.Sql.Types
-    , module Database.Persist.Sql.Class
+    (
+    -- * 'RawSql' and 'PersistFieldSql'
+      module Database.Persist.Sql.Class
+    -- * Running actions
+    -- | Run actions in a transaction with 'runSqlPool'.
     , module Database.Persist.Sql.Run
+    -- * Migrations
     , module Database.Persist.Sql.Migration
+    -- * @persistent@ combinators
+    -- | We re-export "Database.Persist" here, to make it easier to use query
+    -- and update combinators. Check out that module for documentation.
     , module Database.Persist
     , module Database.Persist.Sql.Orphan.PersistStore
+    -- * The Escape Hatch
+    -- | @persistent@ offers a set of functions that are useful for operating
+    -- directly on the underlying SQL database. This can allow you to use
+    -- whatever SQL features you want.
+    --
+    -- Consider going to <https://hackage.haskell.org/package/esqueleto
+    -- esqueleto> for a more powerful SQL query library built on @persistent@.
     , rawQuery
     , rawQueryRes
     , rawExecute
     , rawExecuteCount
     , rawSql
+    -- * SQL helpers
     , deleteWhereCount
     , updateWhereCount
+    , filterClause
+    , filterClauseWithVals
+    , FilterTablePrefix (..)
+    -- * Transactions
     , transactionSave
     , transactionSaveWithIsolation
     , transactionUndo
     , transactionUndoWithIsolation
-    , IsolationLevel (..)
+    -- * Other utilities
     , getStmtConn
+    , mkColumns
+    , BackendSpecificOverrides
+    , emptyBackendSpecificOverrides
+    , getBackendSpecificForeignKeyName
+    , setBackendSpecificForeignKeyName
+    , defaultAttribute
       -- * Internal
-    , module Database.Persist.Sql.Internal
+    , IsolationLevel(..)
     , decorateSQLWithLimitOffset
+    , module Database.Persist.Sql.Types
     ) where
 
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader (ReaderT, ask)
 
 import Database.Persist
-import Database.Persist.Sql.Types
-import Database.Persist.Sql.Types.Internal (IsolationLevel (..))
 import Database.Persist.Sql.Class
-import Database.Persist.Sql.Run hiding (withResourceTimeout)
-import Database.Persist.Sql.Raw
-import Database.Persist.Sql.Migration
 import Database.Persist.Sql.Internal
+import Database.Persist.Sql.Migration
+import Database.Persist.Sql.Raw
+import Database.Persist.Sql.Run hiding (rawAcquireSqlConn, rawRunSqlPool)
+import Database.Persist.Sql.Types
+import Database.Persist.Sql.Types.Internal (IsolationLevel(..), SqlBackend(..))
 
 import Database.Persist.Sql.Orphan.PersistQuery
 import Database.Persist.Sql.Orphan.PersistStore

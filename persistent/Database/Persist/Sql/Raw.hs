@@ -16,6 +16,7 @@ import qualified Data.Text as T
 
 import Database.Persist
 import Database.Persist.Sql.Types
+import Database.Persist.Sql.Types.Internal
 import Database.Persist.Sql.Class
 
 rawQuery :: (MonadResource m, MonadReader env m, BackendCompatible SqlBackend env)
@@ -66,8 +67,8 @@ rawExecuteCount sql vals = do
     return res
 
 getStmt
-  :: (MonadIO m, BackendCompatible SqlBackend backend)
-  => Text -> ReaderT backend m Statement
+  :: (MonadIO m, MonadReader backend m, BackendCompatible SqlBackend backend)
+  => Text -> m Statement
 getStmt sql = do
     conn <- projectBackend `liftM` ask
     liftIO $ getStmtConn conn sql
@@ -231,7 +232,7 @@ rawSql stmt = run
 
       run params = do
         conn <- projectBackend `liftM` ask
-        let (colCount, colSubsts) = rawSqlCols (connEscapeName conn) x
+        let (colCount, colSubsts) = rawSqlCols (connEscapeRawName conn) x
         withStmt' colSubsts params $ firstRow colCount
 
       firstRow colCount = do

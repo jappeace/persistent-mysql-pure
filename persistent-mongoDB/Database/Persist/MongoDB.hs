@@ -7,6 +7,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# OPTIONS_GHC -fno-warn-deprecations #-} -- Pattern match 'PersistDbSpecific'
 -- | Use persistent-mongodb the same way you would use other persistent
 -- libraries and refer to the general persistent documentation.
 -- There are some new MongoDB specific filters under the filters section.
@@ -112,29 +113,39 @@ module Database.Persist.MongoDB
     ) where
 
 import Control.Exception (throw, throwIO)
-import Control.Monad (liftM, (>=>), forM_, unless)
+import Control.Monad (forM_, liftM, unless, (>=>))
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.IO.Class as Trans
 import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Control.Monad.Trans.Reader (ask, runReaderT)
+import qualified Data.List.NonEmpty as NEL
 
 import Data.Acquire (mkAcquire)
-import Data.Aeson (Value (Number), (.:), (.:?), (.!=), FromJSON(..), ToJSON(..), withText, withObject)
+import Data.Aeson
+       ( FromJSON(..)
+       , ToJSON(..)
+       , Value(Number)
+       , withObject
+       , withText
+       , (.!=)
+       , (.:)
+       , (.:?)
+       )
 import Data.Aeson.Types (modifyFailure)
 import Data.Bits (shiftR)
 import Data.Bson (ObjectId(..))
 import qualified Data.ByteString as BS
 import Data.Conduit
-import Data.Maybe (mapMaybe, fromJust)
+import Data.Maybe (fromJust, mapMaybe)
 import Data.Monoid (mappend)
+import qualified Data.Pool as Pool
 import qualified Data.Serialize as Serialize
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as E
-import qualified Data.Traversable as Traversable
-import qualified Data.Pool as Pool
 import Data.Time (NominalDiffTime)
 import Data.Time.Calendar (Day(..))
+import qualified Data.Traversable as Traversable
 #ifdef HIGH_PRECISION_DATE
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 #endif
@@ -143,8 +154,14 @@ import Network.Socket (HostName)
 import Numeric (readHex)
 import System.Environment (lookupEnv)
 import Unsafe.Coerce (unsafeCoerce)
+import Web.HttpApiData
+       ( FromHttpApiData(..)
+       , ToHttpApiData(..)
+       , parseUrlPieceMaybe
+       , parseUrlPieceWithPrefix
+       , readTextData
+       )
 import Web.PathPieces (PathPiece(..))
-import Web.HttpApiData (ToHttpApiData(..), FromHttpApiData(..), parseUrlPieceMaybe, parseUrlPieceWithPrefix, readTextData)
 
 #ifdef DEBUG
 import FileLocation (debug)
@@ -154,6 +171,7 @@ import qualified Database.MongoDB as DB
 import Database.MongoDB.Query (Database)
 
 import Database.Persist
+import Database.Persist.EntityDef.Internal (toEmbedEntityDef)
 import qualified Database.Persist.Sql as Sql
 
 instance HasPersistBackend DB.MongoContext where
@@ -407,7 +425,7 @@ updateToMongoField (BackendUpdate up)  = mongoUpdateToDoc up
 -- | convert a unique key into a MongoDB document
 toUniquesDoc :: forall record. (PersistEntity record) => Unique record -> [DB.Field]
 toUniquesDoc uniq = zipWith (DB.:=)
-  (map (unDBName . snd) $ persistUniqueToFieldNames uniq)
+  (map (unFieldNameDB . snd) $ NEL.toList $ persistUniqueToFieldNames uniq)
   (map DB.val (persistUniqueToValues uniq))
 
 -- | convert a PersistEntity into document fields.
@@ -415,31 +433,38 @@ toUniquesDoc uniq = zipWith (DB.:=)
 -- 'recordToDocument' includes nulls
 toInsertDoc :: forall record.  (PersistEntity record, PersistEntityBackend record ~ DB.MongoContext)
             => record -> DB.Document
-toInsertDoc record = zipFilter (embeddedFields $ toEmbedEntityDef entDef)
-    (map toPersistValue $ toPersistFields record)
+toInsertDoc record =
+    zipFilter
+        (embeddedFields $ toEmbedEntityDef entDef)
+        (map toPersistValue $ toPersistFields record)
   where
     entDef = entityDef $ Just record
-    zipFilter :: [EmbedFieldDef] -> [PersistValue] -> DB.Document
-    zipFilter [] _  = []
-    zipFilter _  [] = []
-    zipFilter (fd:efields) (pv:pvs) =
-        if isNull pv then recur else
-          (fieldToLabel fd DB.:= embeddedVal (emFieldEmbed fd) pv):recur
-
+    zipFilter xs ys =
+        map (\(fd, pv) ->
+            fieldToLabel fd
+                DB.:=
+                    embeddedVal pv
+        )
+        $ filter (\(_, pv) -> not $ isNull pv)
+        $ zip xs ys
       where
-        recur = zipFilter efields pvs
-
         isNull PersistNull = True
         isNull (PersistMap m) = null m
         isNull (PersistList l) = null l
         isNull _ = False
 
-    -- make sure to removed nulls from embedded entities also
-    embeddedVal :: Maybe EmbedEntityDef -> PersistValue -> DB.Value
-    embeddedVal (Just emDef) (PersistMap m) = DB.Doc $
-      zipFilter (embeddedFields emDef) $ map snd m
-    embeddedVal je@(Just _) (PersistList l) = DB.Array $ map (embeddedVal je) l
-    embeddedVal _ pv = DB.val pv
+    -- make sure to removed nulls from embedded entities also.
+    -- note that persistent no longer supports embedded maps
+    -- with fields. This means any embedded bson object will
+    -- insert null. But top level will not.
+    embeddedVal :: PersistValue -> DB.Value
+    embeddedVal (PersistMap m) =
+        DB.Doc $ fmap (\(k, v) -> k DB.:= DB.val v) $ m
+            -- zipFilter fields $ map snd m
+    embeddedVal (PersistList l) =
+        DB.Array $ map embeddedVal l
+    embeddedVal pv =
+        DB.val pv
 
 entityToInsertDoc :: forall record.  (PersistEntity record, PersistEntityBackend record ~ DB.MongoContext)
                   => Entity record -> DB.Document
@@ -447,13 +472,13 @@ entityToInsertDoc (Entity key record) = keyToMongoDoc key ++ toInsertDoc record
 
 collectionName :: (PersistEntity record, PersistEntityBackend record ~ DB.MongoContext)
                => record -> Text
-collectionName = unDBName . entityDB . entityDef . Just
+collectionName = unEntityNameDB . getEntityDBName . entityDef . Just
 
 -- | convert a PersistEntity into document fields.
 -- unlike 'toInsertDoc', nulls are included.
 recordToDocument :: (PersistEntity record, PersistEntityBackend record ~ DB.MongoContext)
                  => record -> DB.Document
-recordToDocument record = zipToDoc (map fieldDB $ entityFields entity) (toPersistFields record)
+recordToDocument record = zipToDoc (map fieldDB $ getEntityFields entity) (toPersistFields record)
   where
     entity = entityDef $ Just record
 
@@ -462,15 +487,15 @@ documentFromEntity :: (PersistEntity record, PersistEntityBackend record ~ DB.Mo
 documentFromEntity (Entity key record) =
     keyToMongoDoc key ++ recordToDocument record
 
-zipToDoc :: PersistField a => [DBName] -> [a] -> [DB.Field]
+zipToDoc :: PersistField a => [FieldNameDB] -> [a] -> [DB.Field]
 zipToDoc [] _  = []
 zipToDoc _  [] = []
 zipToDoc (e:efields) (p:pfields) =
   let pv = toPersistValue p
-  in  (unDBName e DB.:= DB.val pv):zipToDoc efields pfields
+  in  (unFieldNameDB e DB.:= DB.val pv):zipToDoc efields pfields
 
 fieldToLabel :: EmbedFieldDef -> Text
-fieldToLabel = unDBName . emFieldDB
+fieldToLabel = unFieldNameDB . emFieldDB
 
 keyFrom_idEx :: (Trans.MonadIO m, PersistEntity record) => DB.Value -> m (Key record)
 keyFrom_idEx idVal = case keyFrom_id idVal of
@@ -548,7 +573,8 @@ instance PersistStoreWrite DB.MongoContext where
            $ updatesToDoc upds
 
     updateGet key upds = do
-        result <- DB.findAndModify (queryByKey key) (updatesToDoc upds)
+        context <- ask
+        result <- liftIO $ runReaderT (DB.findAndModify (queryByKey key) (updatesToDoc upds)) context
         either err instantiate result
       where
         instantiate doc = do
@@ -641,10 +667,10 @@ id_ = "_id"
 keyToMongoDoc :: (PersistEntity record, PersistEntityBackend record ~ DB.MongoContext)
                   => Key record -> DB.Document
 keyToMongoDoc k = case entityPrimary $ entityDefFromKey k of
-    Nothing   -> zipToDoc [DBName id_] values
+    Nothing   -> zipToDoc [FieldNameDB id_] values
     Just pdef -> [id_ DB.=: zipToDoc (primaryNames pdef)  values]
   where
-    primaryNames = map fieldDB . compositeFields
+    primaryNames = map fieldDB . NEL.toList . compositeFields
     values = keyToValues k
 
 entityDefFromKey :: PersistEntity record => Key record -> EntityDef
@@ -656,10 +682,10 @@ collectionNameFromKey = collectionName . recordTypeFromKey
 
 projectionFromEntityDef :: EntityDef -> DB.Projector
 projectionFromEntityDef eDef =
-  map toField (entityFields eDef)
+  map toField (getEntityFields eDef)
   where
     toField :: FieldDef -> DB.Field
-    toField fDef = (unDBName (fieldDB fDef)) DB.=: (1 :: Int)
+    toField fDef = (unFieldNameDB (fieldDB fDef)) DB.=: (1 :: Int)
 
 projectionFromKey :: PersistEntity record => Key record -> DB.Projector
 projectionFromKey = projectionFromEntityDef . entityDefFromKey
@@ -689,6 +715,10 @@ instance PersistQueryRead DB.MongoContext where
       where
         query = DB.select (filtersToDoc filts) $
                   collectionName $ dummyFromFilts filts
+
+    exists filts = do
+        cnt <- count filts
+        pure (cnt > 0)
 
     -- | uses cursor option NoCursorTimeout
     -- If there is no sorting, it will turn the $snapshot option on
@@ -890,8 +920,8 @@ toValue val =
       FilterValues vs -> DB.val $ map toPersistValue vs
 
 fieldName ::  forall record typ.  (PersistEntity record) => EntityField record typ -> DB.Label
-fieldName f | fieldHaskell fd == HaskellName "Id" = id_
-            | otherwise = unDBName $ fieldDB $ fd
+fieldName f | fieldHaskell fd == FieldNameHS "Id" = id_
+            | otherwise = unFieldNameDB $ fieldDB $ fd
   where
     fd = persistFieldDef f
 
@@ -914,7 +944,7 @@ fromPersistValuesThrow :: (Trans.MonadIO m, PersistEntity record, PersistEntityB
 fromPersistValuesThrow entDef doc =
     case eitherFromPersistValues entDef doc of
         Left t -> Trans.liftIO . throwIO $ PersistMarshalError $
-                   unHaskellName (entityHaskell entDef) `mappend` ": " `mappend` t
+                   unEntityNameHS (getEntityHaskellName entDef) `mappend` ": " `mappend` t
         Right entity -> return entity
 
 mapLeft :: (a -> c) -> Either a b -> Either c b
@@ -943,10 +973,13 @@ eitherFromPersistValues entDef doc = case mKey of
 -- Persistent creates a Haskell record from a list of PersistValue
 -- But most importantly it puts all PersistValues in the proper order
 orderPersistValues :: EmbedEntityDef -> [(Text, PersistValue)] -> [(Text, PersistValue)]
-orderPersistValues entDef castDoc = reorder
+orderPersistValues entDef castDoc =
+    match castColumns castDoc []
   where
-    castColumns = map nameAndEmbed (embeddedFields entDef)
-    nameAndEmbed fdef = (fieldToLabel fdef, emFieldEmbed fdef)
+    castColumns =
+        map nameAndEmbed (embeddedFields entDef)
+    nameAndEmbed fdef =
+        (fieldToLabel fdef, emFieldEmbed fdef)
 
     -- TODO: the below reasoning should be re-thought now that we are no longer inserting null: searching for a null column will look at every returned field before giving up
     -- Also, we are now doing the _id lookup at the start.
@@ -964,44 +997,43 @@ orderPersistValues entDef castDoc = reorder
     -- * but once we found an item in the alist use a new alist without that item for future lookups
     -- * so for the last query there is only one item left
     --
-    reorder :: [(Text, PersistValue)]
-    reorder = match castColumns castDoc []
+    match :: [(Text, Maybe (Either a EntityNameHS) )]
+          -> [(Text, PersistValue)]
+          -> [(Text, PersistValue)]
+          -> [(Text, PersistValue)]
+    -- when there are no more Persistent castColumns we are done
+    --
+    -- allow extra mongoDB fields that persistent does not know about
+    -- another application may use fields we don't care about
+    -- our own application may set extra fields with the raw driver
+    match [] _ values = values
+    match ((fName, medef) : columns) fields values =
+        let
+            ((_, pv) , unused) =
+                matchOne fields []
+        in
+            match columns unused $
+                values ++ [(fName, nestedOrder medef pv)]
       where
-        match :: [(Text, Maybe EmbedEntityDef)]
-              -> [(Text, PersistValue)]
-              -> [(Text, PersistValue)]
-              -> [(Text, PersistValue)]
-        -- when there are no more Persistent castColumns we are done
-        --
-        -- allow extra mongoDB fields that persistent does not know about
-        -- another application may use fields we don't care about
-        -- our own application may set extra fields with the raw driver
-        match [] _ values = values
-        match (column:columns) fields values =
-          let (found, unused) = matchOne fields []
-          in match columns unused $ values ++
-                [(fst column, nestedOrder (snd column) (snd found))]
-          where
-            nestedOrder (Just em) (PersistMap m) =
-              PersistMap $ orderPersistValues em m
-            nestedOrder (Just em) (PersistList l) =
-              PersistList $ map (nestedOrder (Just em)) l
-            -- implied: nestedOrder Nothing found = found
-            nestedOrder _ found = found
+        -- support for embedding other persistent objects into a schema for
+        -- mongodb cannot be currently supported in persistent.
+        -- The order will be undetermined but that's ok because there is no
+        -- schema migration for mongodb anyways.
+        -- nestedOrder (Just _) (PersistMap m) = PersistMap m
+        nestedOrder (Just em) (PersistList l) = PersistList $ map (nestedOrder (Just em)) l
+        nestedOrder _ found = found
 
-            matchOne (field:fs) tried =
-              if fst column == fst field
-                -- snd drops the name now that it has been used to make the match
-                -- persistent will add the field name later
+        matchOne (field:fs) tried =
+            if fName == fst field
                 then (field, tried ++ fs)
                 else matchOne fs (field:tried)
-            -- if field is not found, assume it was a Nothing
-            --
-            -- a Nothing could be stored as null, but that would take up space.
-            -- instead, we want to store no field at all: that takes less space.
-            -- Also, another ORM may be doing the same
-            -- Also, this adding a Maybe field means no migration required
-            matchOne [] tried = ((fst column, PersistNull), tried)
+        -- if field is not found, assume it was a Nothing
+        --
+        -- a Nothing could be stored as null, but that would take up space.
+        -- instead, we want to store no field at all: that takes less space.
+        -- Also, another ORM may be doing the same
+        -- Also, this adding a Maybe field means no migration required
+        matchOne [] tried = ((fName, PersistNull), tried)
 
 assocListFromDoc :: DB.Document -> [(Text, PersistValue)]
 assocListFromDoc = Prelude.map (\f -> ( (DB.label f), cast (DB.value f) ) )
@@ -1042,6 +1074,7 @@ instance DB.Val PersistValue where
   val (PersistRational _)   = throw $ PersistMongoDBUnsupported "PersistRational not implemented for the MongoDB backend"
   val (PersistArray a)      = DB.val $ PersistList a
   val (PersistDbSpecific _)   = throw $ PersistMongoDBUnsupported "PersistDbSpecific not implemented for the MongoDB backend"
+  val (PersistLiteral_ _ _)   = throw $ PersistMongoDBUnsupported "PersistLiteral not implemented for the MongoDB backend"
   cast' (DB.Float x)  = Just (PersistDouble x)
   cast' (DB.Int32 x)  = Just $ PersistInt64 $ fromIntegral x
   cast' (DB.Int64 x)  = Just $ PersistInt64 x
@@ -1471,5 +1504,5 @@ infix 4 `inList`
 
 -- | No intersection of lists: if no value in the field is found in the list.
 ninList :: PersistField typ => EntityField v [typ] -> [typ] -> Filter v
-f `ninList` a = Filter (unsafeCoerce f) (FilterValues a) In
+f `ninList` a = Filter (unsafeCoerce f) (FilterValues a) NotIn
 infix 4 `ninList`

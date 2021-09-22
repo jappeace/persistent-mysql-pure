@@ -1,5 +1,73 @@
 # Changelog for persistent-sqlite
 
+## 2.13.0.3
+
+* Somehow failed to properly release the safe-to-remove changes.
+
+## 2.13.0.2
+
+* [#1275](https://github.com/yesodweb/persistent/pull/1275)
+    * Fix SafeToRemove
+
+## 2.13.0.1
+
+* [#1265](https://github.com/yesodweb/persistent/pull/1265)
+    * Support GHC 9
+
+## 2.13.0.0
+
+* [#1225](https://github.com/yesodweb/persistent/pull/1225)
+    * Support `persistent-2.13` changes for SqlBackend being made internal.
+
+## 2.12.0.0
+
+* Decomposed `HaskellName` into `ConstraintNameHS`, `EntityNameHS`, `FieldNameHS`. Decomposed `DBName` into `ConstraintNameDB`, `EntityNameDB`, `FieldNameDB` respectively. [#1174](https://github.com/yesodweb/persistent/pull/1174)
+
+##  2.11.1.0
+
+* Add `checkForeignKeys` operation to verify no foreign key constraints are
+  violated by the database contents.
+* Fix the migration for primary keys that was broken in 2.11.0.0
+  [#1184](https://github.com/yesodweb/persistent/issues/1184)
+
+##  2.11.0.0
+
+* Foreign Key improvements [#1121] (https://github.com/yesodweb/persistent/pull/1121)
+  * It is now supported to refer to a table with an auto generated Primary Kay
+  * It is now supported to refer to non-primary fields, using the keyword `References`
+  * It is now supported to have cascade options for simple/single-field Foreign Keys
+* [#1060](https://github.com/yesodweb/persistent/pull/1060)
+  * The QuasiQuoter now supports `OnDelete` and `OnUpdate` cascade options.
+* [#1131](https://github.com/yesodweb/persistent/pull/1131)
+  * Provide `exists` function as required by `PersistQueryRead` type class.
+* Remove unnecessary deriving of Typeable [#1114](https://github.com/yesodweb/persistent/pull/1114)
+* [#1134](https://github.com/yesodweb/persistent/pull/1134)
+  * Update the SQLite amalgamation to 3.33.0
+
+## 2.10.6.2
+
+* Move template haskell splices to be correct (and GHC 8.10 compatible) [#1034](https://github.com/yesodweb/persistent/pull/1034)
+
+## 2.10.6.1
+
+* Missing `includes` and `install-includes` cabal fields added, to allow
+  packages depending on persistent-sqlite access to the header files.
+
+## 2.10.6
+
+* Bump SQLite amalgamation to version 3.30.1 [#991](https://github.com/yesodweb/persistent/pull/991)
+* Add `createRawSqlitePoolFromInfo`, `createRawSqlitePoolFromInfo_`,
+  `withRawSqlitePoolInfo`, and `withRawSqlitePoolInfo_` to match the existing
+  pool functions for regular `SqlBackend`. [#983](https://github.com/yesodweb/persistent/pull/983)
+
+## 2.10.5.2
+
+* Compatibility with latest persistent-template for test suite [#1002](https://github.com/yesodweb/persistent/pull/1002/files)
+
+## 2.10.5.1
+
+* a fix for template-haskell 2.16, GHC 8.10 alpha [#993](https://github.com/yesodweb/persistent/pull/993) @simonmichael
+
 ## 2.10.5
 
 * Foreign keys table constraints are correctly generated [#945](https://github.com/yesodweb/persistent/pull/945) @kderme

@@ -1,10 +1,12 @@
-{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE DataKinds, FlexibleInstances, MultiParamTypeClasses, ExistentialQuantification #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module InsertDuplicateUpdate where
 
@@ -47,7 +49,7 @@ specs = describe "DuplicateKeyUpdate" $ do
     it "performs only updates given if record already exists" $ db $ do
       deleteWhere ([] :: [Filter Item])
       let newDescription = "I am a new description"
-      _ <- insert item1
+      insert_ item1
       insertOnDuplicateKeyUpdate
         (Item "item1" "i am inserted description" (Just 1) (Just 2))
         [ItemDescription =. newDescription]
@@ -66,12 +68,15 @@ specs = describe "DuplicateKeyUpdate" $ do
       dbItems <- map entityVal <$> selectList [] []
       sort dbItems @== sort (newItem : items)
     it "updates existing records" $ db $ do
+      let postUpdate = map (\i -> i { itemQuantity = fmap (+1) (itemQuantity i) }) items
       deleteWhere ([] :: [Filter Item])
       insertMany_ items
       insertManyOnDuplicateKeyUpdate
         items
         []
         [ItemQuantity +=. Just 1]
+      dbItems <- sort . fmap entityVal <$> selectList [] []
+      dbItems @== sort postUpdate
     it "only copies passing values" $ db $ do
       deleteWhere ([] :: [Filter Item])
       insertMany_ items

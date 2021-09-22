@@ -1,6 +1,8 @@
-{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -14,7 +16,6 @@ module Init (
   , isTravis
 
   , module Database.Persist.Sql
-  , MonadIO
   , persistSettings
   , MkPersistSettings (..)
   , BackendKey(..)
@@ -26,12 +27,12 @@ module Init (
   , module Database.Persist
   , module Test.Hspec
   , module Test.HUnit
-  , liftIO
   , mkPersist, mkMigrate, share, sqlSettings, persistLowerCase, persistUpperCase
   , Int32, Int64
   , Text
-  , module Control.Monad.Trans.Reader
+  , module Control.Monad.Reader
   , module Control.Monad
+  , module Control.Monad.IO.Unlift
   , BS.ByteString
   , SomeException
   , MonadFail
@@ -42,39 +43,63 @@ module Init (
   , arbText
   , liftA2
   , changeBackend
+  , Proxy(..)
+  , UUID(..)
+  , sqlSettingsUuid
   ) where
+
+#if !MIN_VERSION_monad_logger(0,3,30)
+-- Needed for GHC versions 7.10.3. Can drop when we drop support for GHC
+-- 7.10.3
+import qualified Control.Monad.Fail as MonadFail
+import Control.Monad.IO.Class
+import Control.Monad.Logger
+#endif
 
 -- needed for backwards compatibility
 import Control.Monad.Base
 import Control.Monad.Catch
-import qualified Control.Monad.Fail as MonadFail
-import Control.Monad.Logger
+import Control.Monad.IO.Unlift
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Control
 import Control.Monad.Trans.Resource
 import Control.Monad.Trans.Resource.Internal
 
 -- re-exports
-import Control.Applicative (liftA2)
+import Control.Applicative (liftA2, (<|>))
 import Control.Exception (SomeException)
-import Control.Monad (void, replicateM, liftM, when, forM_)
+import Control.Monad (forM_, liftM, replicateM, void, when)
 import Control.Monad.Fail (MonadFail)
-import Control.Monad.Trans.Reader
-import Data.Char (generalCategory, GeneralCategory(..))
-import Data.Fixed (Pico,Micro)
+import Control.Monad.Reader
+import Data.Char (GeneralCategory(..), generalCategory)
+import Data.Fixed (Micro, Pico)
+import Data.Proxy
 import qualified Data.Text as T
 import Data.Time
 import Test.Hspec
 import Test.QuickCheck.Instances ()
 
-import Database.Persist.TH (mkPersist, mkMigrate, share, sqlSettings, persistLowerCase, persistUpperCase, MkPersistSettings(..))
+import Data.Aeson (FromJSON, ToJSON, Value(..))
+import qualified Data.Text.Encoding as TE
+import Database.Persist.ImplicitIdDef (mkImplicitIdDef)
+import Database.Persist.TH
+       ( MkPersistSettings(..)
+       , mkMigrate
+       , mkPersist
+       , persistLowerCase
+       , persistUpperCase
+       , setImplicitIdDef
+       , share
+       , sqlSettings
+       )
+import Web.Internal.HttpApiData
+import Web.PathPieces
 
 -- testing
-import Test.HUnit ((@?=),(@=?), Assertion, assertFailure, assertBool)
+import Test.HUnit (Assertion, assertBool, assertFailure, (@=?), (@?=))
 import Test.QuickCheck
 
 import Control.Monad (unless, (>=>))
-import Control.Monad.IO.Class
 import Control.Monad.IO.Unlift (MonadUnliftIO)
 import qualified Data.ByteString as BS
 import Data.IORef
@@ -93,7 +118,7 @@ import Data.Int (Int32, Int64)
 asIO :: IO a -> IO a
 asIO a = a
 
-(@/=), (@==), (==@) :: (Eq a, Show a, MonadIO m) => a -> a -> m ()
+(@/=), (@==), (==@) :: (HasCallStack, Eq a, Show a, MonadIO m) => a -> a -> m ()
 infix 1 @/= --, /=@
 actual @/= expected = liftIO $ assertNotEqual "" expected actual
 
@@ -106,7 +131,7 @@ expected /=@ actual = liftIO $ assertNotEqual "" expected actual
 -}
 
 
-assertNotEqual :: (Eq a, Show a) => String -> a -> a -> Assertion
+assertNotEqual :: (Eq a, Show a, HasCallStack) => String -> a -> a -> Assertion
 assertNotEqual preface expected actual =
   unless (actual /= expected) (assertFailure msg)
   where msg = (if null preface then "" else preface ++ "\n") ++
@@ -119,11 +144,15 @@ assertNotEmpty :: (MonadIO m) => [a] -> m ()
 assertNotEmpty xs = liftIO $ assertBool "" (not (null xs))
 
 isTravis :: IO Bool
-isTravis = do
-  env <- liftIO getEnvironment
-  return $ case lookup "TRAVIS" env of
-    Just "true" -> True
-    _ -> False
+isTravis = isCI
+
+isCI :: IO Bool
+isCI =  do
+    env <- liftIO getEnvironment
+    return $ case lookup "TRAVIS" env <|> lookup "CI" env of
+        Just "true" -> True
+        _ -> False
+
 
 persistSettings :: MkPersistSettings
 persistSettings = sqlSettings { mpsGeneric = True }
@@ -236,3 +265,34 @@ instance MonadBaseControl b m => MonadBaseControl b (ResourceT m) where
              f $ runInBase . (\(ResourceT r) -> r reader')
      restoreM = ResourceT . const . restoreM
 #endif
+
+-- * For implicit ID spec
+
+newtype UUID = UUID { unUUID :: Text }
+    deriving stock
+        (Show, Eq, Ord, Read)
+    deriving newtype
+        (ToJSON, FromJSON, FromHttpApiData, ToHttpApiData, PathPiece)
+
+instance PersistFieldSql UUID where
+    sqlType _ = SqlOther "UUID"
+
+instance PersistField UUID where
+    toPersistValue (UUID txt) =
+        PersistLiteral_ Escaped (TE.encodeUtf8 txt)
+    fromPersistValue pv =
+        case pv of
+            PersistLiteral_ Escaped bs ->
+                Right $ UUID (TE.decodeUtf8 bs)
+            _ ->
+                Left "Nope"
+
+sqlSettingsUuid :: Text -> MkPersistSettings
+sqlSettingsUuid defExpr =
+    let
+        uuidDef =
+           mkImplicitIdDef @UUID defExpr
+        settings =
+            setImplicitIdDef uuidDef sqlSettings
+     in
+        settings

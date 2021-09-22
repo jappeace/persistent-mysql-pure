@@ -7,12 +7,11 @@ module CompositeTest where
 import qualified Data.Map as Map
 import Data.Maybe (isJust)
 
-import Database.Persist.TH (mkDeleteCascade)
 import Init
 
 
 -- mpsGeneric = False is due to a bug or at least lack of a feature in mkKeyTypeDec TH.hs
-share [mkPersist persistSettings { mpsGeneric = False }, mkMigrate "compositeMigrate", mkDeleteCascade persistSettings { mpsGeneric = False }] [persistLowerCase|
+share [mkPersist persistSettings { mpsGeneric = False }, mkMigrate "compositeMigrate"] [persistLowerCase|
   TestParent
       name  String maxlen=20
       name2 String maxlen=20
@@ -135,7 +134,7 @@ specsWith runDb = describe "composite" $
 
     it "Extract Parent Foreign Key from Child value" $ runDb $ do
       kp1 <- insert p1
-      _ <- insert p2
+      insert_ p2
       kc1 <- insert c1
       mc <- get kc1
       isJust mc @== True
@@ -144,9 +143,9 @@ specsWith runDb = describe "composite" $
       testChildFkparent c11 @== kp1
 
     it "Validate Key contents" $ runDb $ do
-      _ <- insert p1
-      _ <- insert p2
-      _ <- insert p3
+      insert_ p1
+      insert_ p2
+      insert_ p3
       xs <- selectKeysList [] [Asc TestParentName]
       length xs @== 3
       let [kps1,kps2,kps3] = xs
@@ -178,7 +177,7 @@ specsWith runDb = describe "composite" $
 
     it "Replace Child" $ runDb $ do
       -- c1 FKs p1
-      _ <- insert p1
+      insert_ p1
       kc1 <- insert c1
       _ <- replace kc1 c1'
       newc1 <- get kc1
@@ -233,6 +232,8 @@ specsWith runDb = describe "composite" $
 
     it "RawSql Entity instance" $ runDb $ do
       key <- insert p1
+      Just x <- get key
+      x @== p1
       newp1 <- rawSql "SELECT ?? FROM test_parent LIMIT 1" []
       [Entity key p1] @== newp1
 

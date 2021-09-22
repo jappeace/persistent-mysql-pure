@@ -1,9 +1,10 @@
+{-# LANGUAGE ExplicitForAll #-}
 module Database.Persist.Class.PersistQuery
-    ( PersistQueryRead (..)
+    ( selectList
+    , PersistQueryRead (..)
     , PersistQueryWrite (..)
     , selectSource
     , selectKeys
-    , selectList
     , selectKeysList
     ) where
 
@@ -21,6 +22,12 @@ import Database.Persist.Class.PersistEntity
 class (PersistCore backend, PersistStoreRead backend) => PersistQueryRead backend where
     -- | Get all records matching the given criterion in the specified order.
     -- Returns also the identifiers.
+    --
+    -- NOTE: This function returns an 'Acquire' and a 'ConduitM', which implies
+    -- that it streams from the database. It does not. Please use 'selectList'
+    -- to simplify the code. If you want streaming behavior, consider
+    -- @persistent-pagination@ which efficiently chunks a query into ranges, or
+    -- investigate a backend-specific streaming solution.
     selectSourceRes
            :: (PersistRecordBackend record backend, MonadIO m1, MonadIO m2)
            => [Filter record]
@@ -47,6 +54,12 @@ class (PersistCore backend, PersistStoreRead backend) => PersistQueryRead backen
     count :: (MonadIO m, PersistRecordBackend record backend)
           => [Filter record] -> ReaderT backend m Int
 
+    -- | Check if there is at least one record fulfilling the given criterion.
+    --
+    -- @since 2.11
+    exists :: (MonadIO m, PersistRecordBackend record backend)
+           => [Filter record] -> ReaderT backend m Bool
+
 -- | Backends supporting conditional write operations
 class (PersistQueryRead backend, PersistStoreWrite backend) => PersistQueryWrite backend where
     -- | Update individual fields on any record matching the given criterion.
@@ -59,8 +72,13 @@ class (PersistQueryRead backend, PersistStoreWrite backend) => PersistQueryWrite
 
 -- | Get all records matching the given criterion in the specified order.
 -- Returns also the identifiers.
+--
+-- WARNING: This function returns a 'ConduitM', which implies that it streams
+-- the results. It does not stream results on most backends. If you need
+-- streaming, see @persistent-pagination@ for a means of chunking results based
+-- on indexed ranges.
 selectSource
-       :: (PersistQueryRead backend, MonadResource m, PersistRecordBackend record backend, MonadReader backend m)
+       :: forall record backend m. (PersistQueryRead backend, MonadResource m, PersistRecordBackend record backend, MonadReader backend m)
        => [Filter record]
        -> [SelectOpt record]
        -> ConduitM () (Entity record) m ()
@@ -71,7 +89,9 @@ selectSource filts opts = do
     release releaseKey
 
 -- | Get the 'Key's of all records matching the given criterion.
-selectKeys :: (PersistQueryRead backend, MonadResource m, PersistRecordBackend record backend, MonadReader backend m)
+--
+-- For an example, see 'selectList'.
+selectKeys :: forall record backend m. (PersistQueryRead backend, MonadResource m, PersistRecordBackend record backend, MonadReader backend m)
            => [Filter record]
            -> [SelectOpt record]
            -> ConduitM () (Key record) m ()
@@ -81,17 +101,70 @@ selectKeys filts opts = do
     src
     release releaseKey
 
--- | Call 'selectSource' but return the result as a list.
-selectList :: (MonadIO m, PersistQueryRead backend, PersistRecordBackend record backend)
-           => [Filter record]
-           -> [SelectOpt record]
-           -> ReaderT backend m [Entity record]
+-- | Returns a @['Entity' record]@ corresponding to the filters and options
+-- provided.
+--
+-- Filters are constructed using the operators defined in "Database.Persist"
+-- (and re-exported from "Database.Persist.Sql"). Let's look at some examples:
+--
+-- @
+-- usersWithAgeOver40 :: 'SqlPersistT' 'IO' ['Entity' User]
+-- usersWithAgeOver40 =
+--     'selectList' [UserAge 'Database.Persist.>=.' 40] []
+-- @
+--
+-- If you provide multiple values in the list, the conditions are @AND@ed
+-- together.
+--
+-- @
+-- usersWithAgeBetween30And50 :: 'SqlPersistT' 'IO' ['Entity' User]
+-- usersWithAgeBetween30And50 =
+--      'selectList'
+--          [ UserAge 'Database.Persist.>=.' 30
+--          , UserAge 'Database.Persist.<=.' 50
+--          ]
+--          []
+-- @
+--
+-- The second list contains the 'SelectOpt' for a record.  We can select the
+-- first ten records with 'LimitTo'
+--
+-- @
+-- firstTenUsers =
+--     'selectList' [] ['LimitTo' 10]
+-- @
+--
+-- And we can select the second ten users with 'OffsetBy'.
+--
+-- @
+-- secondTenUsers =
+--     'selectList' [] ['LimitTo' 10, 'OffsetBy' 10]
+-- @
+--
+-- <https://use-the-index-luke.com/sql/partial-results/fetch-next-page Warning that LIMIT/OFFSET is bad for pagination!>
+--
+-- With 'Asc' and 'Desc', we can provide the field we want to sort on. We can
+-- provide multiple sort orders - later ones are used to sort records that are
+-- equal on the first field.
+--
+-- @
+-- newestUsers =
+--     selectList [] ['Desc' UserCreatedAt, 'LimitTo' 10]
+--
+-- oldestUsers =
+--     selectList [] ['Asc' UserCreatedAt, 'LimitTo' 10]
+-- @
+selectList
+    :: forall record backend m. (MonadIO m, PersistQueryRead backend, PersistRecordBackend record backend)
+    => [Filter record]
+    -> [SelectOpt record]
+    -> ReaderT backend m [Entity record]
 selectList filts opts = do
     srcRes <- selectSourceRes filts opts
     liftIO $ with srcRes (\src -> runConduit $ src .| CL.consume)
 
 -- | Call 'selectKeys' but return the result as a list.
-selectKeysList :: (MonadIO m, PersistQueryRead backend, PersistRecordBackend record backend)
+selectKeysList :: forall record backend m. (MonadIO m, PersistQueryRead backend, PersistRecordBackend record backend)
                => [Filter record]
                -> [SelectOpt record]
                -> ReaderT backend m [Key record]

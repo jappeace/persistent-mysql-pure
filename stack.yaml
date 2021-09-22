@@ -1,7 +1,6 @@
-resolver: lts-14.1
+resolver: lts-14.27
 packages:
   - ./persistent
-  - ./persistent-template
   - ./persistent-sqlite
   - ./persistent-test
   - ./persistent-mongoDB
@@ -10,3 +9,6 @@ packages:
   - ./persistent-postgresql
   - ./persistent-redis
   - ./persistent-qq
+
+extra-deps:
+    - lift-type-0.1.0.0

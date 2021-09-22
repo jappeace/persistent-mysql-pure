@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -8,17 +10,21 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE UndecidableInstances #-} -- FIXME
+{-# LANGUAGE UndecidableInstances #-}
+
 module PersistentTestModels where
 
 import Control.Monad.Reader
 import Data.Aeson
+import Data.Proxy
 import Data.Text (Text)
 
+import Data.Foldable (toList)
+import qualified Data.List.NonEmpty as NEL
 import Database.Persist.Sql
 import Database.Persist.TH
-import PersistTestPetType
 import PersistTestPetCollarType
+import PersistTestPetType
 
 share
     [ mkPersist sqlSettings { mpsGeneric = True }
@@ -101,6 +107,7 @@ share
     !yes Int
     ~no Int
     def Int
+
 |]
 
 deriving instance Show (BackendKey backend) => Show (PetGeneric backend)
@@ -138,9 +145,11 @@ instance (PersistEntity a) => PersistEntity (ReverseFieldOrder a) where
     keyFromValues = fmap RFOKey . fromPersistValue . head
     keyToValues   = (:[]) . toPersistValue . unRFOKey
 
-    entityDef = revFields . entityDef . liftM unRFO
-        where
-          revFields ed = ed { entityFields = reverse (entityFields ed) }
+    entityDef = revFields . entityDef . unRfoProxy
+      where
+        revFields = overEntityFields reverse
+        unRfoProxy :: proxy (ReverseFieldOrder a) -> Proxy a
+        unRfoProxy _ = Proxy
 
     toPersistFields = reverse . toPersistFields . unRFO
     newtype EntityField (ReverseFieldOrder a) b = EFRFO {unEFRFO :: EntityField a b}
@@ -148,12 +157,12 @@ instance (PersistEntity a) => PersistEntity (ReverseFieldOrder a) where
     fromPersistValues = fmap RFO . fromPersistValues . reverse
 
     newtype Unique      (ReverseFieldOrder a)   = URFO  {unURFO  :: Unique      a  }
-    persistUniqueToFieldNames = reverse . persistUniqueToFieldNames . unURFO
+    persistUniqueToFieldNames = NEL.reverse . persistUniqueToFieldNames . unURFO
     persistUniqueToValues = reverse . persistUniqueToValues . unURFO
     persistUniqueKeys = map URFO . reverse . persistUniqueKeys . unRFO
 
     persistIdField = error "ReverseFieldOrder.persistIdField"
-    fieldLens = error "ReverseFieldOrder.fieldLens"
+    fieldLens x = error "ReverseFieldOrder.fieldLens"
 
 cleanDB
     :: (MonadIO m, PersistQuery backend, PersistStoreWrite (BaseBackend backend))

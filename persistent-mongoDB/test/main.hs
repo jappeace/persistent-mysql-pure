@@ -1,11 +1,14 @@
 {-# LANGUAGE EmptyDataDecls #-}
-{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE DataKinds, ExistentialQuantification #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
 import qualified Data.ByteString as BS
@@ -43,6 +46,7 @@ import qualified EmptyEntityTest
 import qualified HtmlTest
 import qualified LargeNumberTest
 import qualified MaxLenTest
+import qualified MaybeFieldDefsTest
 import qualified MigrationOnlyTest
 import qualified PersistentTest
 import qualified Recursive
@@ -100,8 +104,7 @@ EmptyEntity
 main :: IO ()
 main = do
   hspec $ afterAll dropDatabase $ do
-    xdescribe "This test is failing for Mongo by only embedding the first thing." $ do
-        RenameTest.specsWith (db' RenameTest.cleanDB)
+    RenameTest.specsWith (db' RenameTest.cleanDB)
     DataTypeTest.specsWith
         dbNoCleanup
         Nothing
@@ -125,6 +128,7 @@ main = do
     LargeNumberTest.specsWith
         (db' (deleteWhere ([] :: [Filter (LargeNumberTest.NumberGeneric backend)])))
     MaxLenTest.specsWith dbNoCleanup
+    MaybeFieldDefsTest.specsWith dbNoCleanup
     Recursive.specsWith (db' Recursive.cleanup)
 
     SumTypeTest.specsWith (dbNoCleanup) Nothing
@@ -132,13 +136,10 @@ main = do
         dbNoCleanup
         Nothing
     PersistentTest.specsWith (db' PersistentTest.cleanDB)
-    -- TODO: The upsert tests are currently failing. Find out why and fix
-    -- them.
-    xdescribe "UpsertTest is currently failing for Mongo due to differing behavior" $ do
-        UpsertTest.specsWith
-            (db' PersistentTest.cleanDB)
-            UpsertTest.AssumeNullIsZero
-            UpsertTest.UpsertGenerateNewKey
+    UpsertTest.specsWith
+        (db' PersistentTest.cleanDB)
+        UpsertTest.AssumeNullIsZero
+        UpsertTest.UpsertGenerateNewKey
     EmptyEntityTest.specsWith
         (db' EmptyEntityTest.cleanDB)
         Nothing

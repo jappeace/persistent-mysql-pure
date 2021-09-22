@@ -1,8 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE UndecidableInstances #-} -- FIXME
-module TreeTest where
+{-# LANGUAGE RecordWildCards, UndecidableInstances #-}
 
-import Database.Persist.TH (mkDeleteCascade)
+module TreeTest where
 
 import Init
 
@@ -12,8 +11,8 @@ import Init
 share
     [ mkPersist persistSettings { mpsGeneric = False }
     , mkMigrate "treeMigrate"
-    , mkDeleteCascade persistSettings { mpsGeneric = False } ] [persistLowerCase|
-  Tree
+    ] [persistLowerCase|
+  Tree sql=trees
       name    Text
       parent  Text Maybe
       Primary name
@@ -28,14 +27,41 @@ cleanDB = do
   deleteWhere ([] :: [Filter Tree])
 
 specsWith :: (MonadIO m, MonadFail m) => RunDb SqlBackend m -> Spec
-specsWith runDb = describe "tree" $
+specsWith runDb = describe "tree" $ do
     it "Tree relationships" $ runDb $ do
-      kgp@(TreeKey gpt) <- insert $ Tree "grandpa" Nothing
-      kdad@(TreeKey dadt) <- insert $ Tree "dad" $ Just gpt
-      kc <- insert $ Tree "child" $ Just dadt
-      c <- getJust kc
-      treeFkparent c @== Just kdad
-      dad <- getJust kdad
-      treeFkparent dad @== Just kgp
-      gp <- getJust kgp
-      treeFkparent gp @== Nothing
+        kgp@(TreeKey gpt) <- insert $ Tree "grandpa" Nothing
+        kdad@(TreeKey dadt) <- insert $ Tree "dad" $ Just gpt
+        kc <- insert $ Tree "child" $ Just dadt
+        c <- getJust kc
+        treeFkparent c @== Just kdad
+        dad <- getJust kdad
+        treeFkparent dad @== Just kgp
+        gp <- getJust kgp
+        treeFkparent gp @== Nothing
+    describe "entityDef" $ do
+        let ed = entityDef (Proxy :: Proxy Tree)
+        it "has the right haskell name" $ do
+            getEntityHaskellName ed `shouldBe` EntityNameHS "Tree"
+        it "has the right DB name" $ do
+            getEntityDBName ed `shouldBe` EntityNameDB "trees"
+
+    describe "foreign ref" $ do
+        let [ForeignDef{..}] = getEntityForeignDefs (entityDef (Proxy :: Proxy Tree))
+        it "has the right haskell name" $ do
+            foreignRefTableHaskell `shouldBe`
+                EntityNameHS "Tree"
+        it "has the right db name" $ do
+            foreignRefTableDBName `shouldBe`
+                EntityNameDB "trees"
+        it "has the right constraint name" $ do
+            foreignConstraintNameHaskell `shouldBe`
+                ConstraintNameHS "fkparent"
+        it "has the right DB constraint name" $ do
+            foreignConstraintNameDBName `shouldBe`
+                ConstraintNameDB "treefkparent"
+        it "has the right fields" $ do
+            foreignFields `shouldBe`
+                [ ( (FieldNameHS "parent", FieldNameDB "parent")
+                  , (FieldNameHS "name", FieldNameDB "name")
+                  )
+                ]

@@ -1,60 +1,47 @@
+{-# LANGUAGE ExplicitForAll  #-}
 {-# OPTIONS_GHC -fno-warn-orphans  #-}
 module Database.Persist.Sql.Orphan.PersistUnique
   ()
   where
 
 import Control.Exception (throwIO)
-import Control.Monad.IO.Class (liftIO, MonadIO)
-import Control.Monad.Trans.Reader (ask, withReaderT, ReaderT)
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Trans.Reader (ask)
 import qualified Data.Conduit.List as CL
 import Data.Function (on)
 import Data.List (nubBy)
-import Data.Monoid (mappend)
 import qualified Data.Text as T
+import Data.Foldable (toList)
 
 import Database.Persist
-import Database.Persist.Class.PersistUnique (defaultPutMany, persistUniqueKeyValues, onlyOneUniqueDef)
-import Database.Persist.Sql.Types
+import Database.Persist.Class.PersistUnique (defaultUpsertBy, defaultPutMany, persistUniqueKeyValues)
+
+import Database.Persist.Sql.Types.Internal
 import Database.Persist.Sql.Raw
 import Database.Persist.Sql.Orphan.PersistStore (withRawQuery)
 import Database.Persist.Sql.Util (dbColumns, parseEntityValues, updatePersistValue, mkUpdateText')
 
-defaultUpsert
-    ::
-    ( MonadIO m
-    , PersistEntity record
-    , PersistUniqueWrite backend
-    , PersistEntityBackend record ~ BaseBackend backend
-    , OnlyOneUniqueKey record
-    )
-    => record -> [Update record] -> ReaderT backend m (Entity record)
-defaultUpsert record updates = do
-    uniqueKey <- onlyUnique record
-    upsertBy uniqueKey record updates
-
 instance PersistUniqueWrite SqlBackend where
-    upsert record updates = do
+    upsertBy uniqueKey record updates = do
       conn <- ask
-      let escape = connEscapeName conn
-      let refCol n = T.concat [escape (entityDB t), ".", n]
-      let mkUpdateText = mkUpdateText' escape refCol
-      uniqueKey <- onlyUnique record
+      let refCol n = T.concat [connEscapeTableName conn t, ".", n]
+      let mkUpdateText = mkUpdateText' (connEscapeFieldName conn) refCol
       case connUpsertSql conn of
         Just upsertSql -> case updates of
-                            [] -> defaultUpsert record updates
+                            [] -> defaultUpsertBy uniqueKey record updates
                             _:_ -> do
                                 let upds = T.intercalate "," $ map mkUpdateText updates
-                                    sql = upsertSql t (pure (onlyOneUniqueDef (Just record))) upds
+                                    sql = upsertSql t (persistUniqueToFieldNames uniqueKey) upds
                                     vals = map toPersistValue (toPersistFields record)
                                         ++ map updatePersistValue updates
                                         ++ unqs uniqueKey
 
                                 x <- rawSql sql vals
                                 return $ head x
-        Nothing -> defaultUpsert record updates
+        Nothing -> defaultUpsertBy uniqueKey record updates
         where
           t = entityDef $ Just record
-          unqs uniqueKey = concatMap persistUniqueToValues [uniqueKey]
+          unqs uniqueKey' = concatMap persistUniqueToValues [uniqueKey']
 
     deleteBy uniq = do
         conn <- ask
@@ -63,12 +50,12 @@ instance PersistUniqueWrite SqlBackend where
         rawExecute sql' vals
       where
         t = entityDef $ dummyFromUnique uniq
-        go = map snd . persistUniqueToFieldNames
-        go' conn x = connEscapeName conn x `mappend` "=?"
+        go = toList . fmap snd . persistUniqueToFieldNames
+        go' conn x = connEscapeFieldName conn x `mappend` "=?"
         sql conn =
             T.concat
                 [ "DELETE FROM "
-                , connEscapeName conn $ entityDB t
+                , connEscapeTableName conn t
                 , " WHERE "
                 , T.intercalate " AND " $ map (go' conn) $ go uniq]
 
@@ -90,9 +77,9 @@ instance PersistUniqueWrite SqlBackend where
                 Nothing -> defaultPutMany rs
 
 instance PersistUniqueWrite SqlWriteBackend where
-    deleteBy uniq = withReaderT persistBackend $ deleteBy uniq
-    upsert rs us = withReaderT persistBackend $ upsert rs us
-    putMany rs = withReaderT persistBackend $ putMany rs
+    deleteBy uniq = withBaseBackend $ deleteBy uniq
+    upsert rs us = withBaseBackend $ upsert rs us
+    putMany rs = withBaseBackend $ putMany rs
 
 instance PersistUniqueRead SqlBackend where
     getBy uniq = do
@@ -100,9 +87,9 @@ instance PersistUniqueRead SqlBackend where
         let sql =
                 T.concat
                     [ "SELECT "
-                    , T.intercalate "," $ dbColumns conn t
+                    , T.intercalate "," $ toList $ dbColumns conn t
                     , " FROM "
-                    , connEscapeName conn $ entityDB t
+                    , connEscapeTableName conn t
                     , " WHERE "
                     , sqlClause conn]
             uvals = persistUniqueToValues uniq
@@ -119,15 +106,15 @@ instance PersistUniqueRead SqlBackend where
       where
         sqlClause conn =
             T.intercalate " AND " $ map (go conn) $ toFieldNames' uniq
-        go conn x = connEscapeName conn x `mappend` "=?"
+        go conn x = connEscapeFieldName conn x `mappend` "=?"
         t = entityDef $ dummyFromUnique uniq
-        toFieldNames' = map snd . persistUniqueToFieldNames
+        toFieldNames' = toList . fmap snd . persistUniqueToFieldNames
 
 instance PersistUniqueRead SqlReadBackend where
-    getBy uniq = withReaderT persistBackend $ getBy uniq
+    getBy uniq = withBaseBackend $ getBy uniq
 
 instance PersistUniqueRead SqlWriteBackend where
-    getBy uniq = withReaderT persistBackend $ getBy uniq
+    getBy uniq = withBaseBackend $ getBy uniq
 
 dummyFromUnique :: Unique v -> Maybe v
 dummyFromUnique _ = Nothing

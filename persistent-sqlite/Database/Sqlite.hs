@@ -1,6 +1,6 @@
-{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -fno-warn-deprecations #-} -- Pattern match 'PersistDbSpecific'
 -- | A port of the direct-sqlite package for dealing directly with
 -- 'PersistValue's.
 module Database.Sqlite  (
@@ -92,12 +92,11 @@ import Data.Text (Text, pack, unpack)
 import Data.Text.Encoding (encodeUtf8, decodeUtf8With)
 import Data.Text.Encoding.Error (lenientDecode)
 import Data.Time (defaultTimeLocale, formatTime, UTCTime)
-import Data.Typeable (Typeable)
 import Database.Sqlite.Internal (Connection(..), Connection'(..), Statement(..))
 import Foreign
 import Foreign.C
 
-import Database.Persist (PersistValue (..), listToJSON, mapToJSON)
+import Database.Persist (PersistValue (..), listToJSON, mapToJSON, LiteralType(..))
 
 -- | A custom exception type to make it easier to catch exceptions.
 --
@@ -107,7 +106,7 @@ data SqliteException = SqliteException
     , seFunctionName :: !Text
     , seDetails      :: !Text
     }
-    deriving (Typeable)
+
 instance Show SqliteException where
     show (SqliteException error functionName details) = unpack $ Data.Monoid.mconcat
         ["SQLite3 returned "
@@ -469,9 +468,13 @@ bind statement sqlData = do
             PersistUTCTime d -> bindText statement parameterIndex $ pack $ format8601 d
             PersistList l -> bindText statement parameterIndex $ listToJSON l
             PersistMap m -> bindText statement parameterIndex $ mapToJSON m
-            PersistDbSpecific s -> bindText statement parameterIndex $ decodeUtf8With lenientDecode s
             PersistArray a -> bindText statement parameterIndex $ listToJSON a -- copy of PersistList's definition
             PersistObjectId _ -> P.error "Refusing to serialize a PersistObjectId to a SQLite value"
+
+            -- I know one of these is broken, but the docs for `sqlite3_bind_text` aren't very illuminating.
+            PersistLiteral_ DbSpecific s -> bindText statement parameterIndex $ decodeUtf8With lenientDecode s
+            PersistLiteral_ Unescaped l -> bindText statement parameterIndex $ decodeUtf8With lenientDecode l
+            PersistLiteral_ Escaped e -> bindText statement parameterIndex $ decodeUtf8With lenientDecode e
             )
        $ zip [1..] sqlData
   return ()

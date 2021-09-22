@@ -1,10 +1,13 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UndecidableInstances #-} -- FIXME
+{-# LANGUAGE RecordWildCards, UndecidableInstances #-}
+
 module PersistentTest
     ( module PersistentTest
     , cleanDB
     , testMigrate
     , noPrefixMigrate
+    , customPrefixMigrate
+    , treeMigrate
     ) where
 
 import Control.Monad.Fail
@@ -21,6 +24,7 @@ import Test.Hspec.QuickCheck(prop)
 import Test.HUnit hiding (Test)
 import UnliftIO (MonadUnliftIO, catch)
 import Web.PathPieces (PathPiece (..))
+import Data.Proxy (Proxy(..))
 
 import Database.Persist
 import Init
@@ -42,12 +46,12 @@ filterOrSpecs
 filterOrSpecs runDb = describe "FilterOr" $ do
             it "FilterOr []" $ runDb $ do
                 let p = Person "z" 1 Nothing
-                _ <- insert p
+                insert_ p
                 ps <- selectList [FilterOr []] [Desc PersonAge]
                 assertEmpty ps
             it "||. []" $ runDb $ do
                 let p = Person "z" 1 Nothing
-                _ <- insert p
+                insert_ p
                 c <- count $ [PersonName ==. "a"] ||. []
                 c @== (1::Int)
 
@@ -56,7 +60,7 @@ _polymorphic :: (MonadFail m, MonadIO m, PersistQuery backend, BaseBackend backe
 _polymorphic = do
     ((Entity id' _):_) <- selectList [] [LimitTo 1]
     _ <- selectList [PetOwnerId ==. id'] []
-    _ <- insert $ Pet id' "foo" Cat
+    insert_ $ Pet id' "foo" Cat
     return ()
 
 -- Some lens stuff
@@ -70,8 +74,25 @@ type Getting r s t a b = (a -> Constant r b) -> s -> Constant r t
 view :: s -> Getting a s t a b -> a
 view s l = getConstant (l Constant s)
 
+safeToRemoveSpec :: forall backend m. Runner backend m => RunDb backend m -> Spec
+safeToRemoveSpec runDb = do
+    describe "DudeWeirdColumns" $ do
+        it "can insert and get" $ do
+            let m = DudeWeirdColumns "hello"
+            runDb $ do
+                k <- insert m
+                mval <- get k
+                liftIO $ fmap dudeWeirdColumnsName mval `shouldBe` Just "hello"
+        it "can putMany" $ do
+            let ms =
+                    [ DudeWeirdColumns "hello"
+                    , DudeWeirdColumns "goodbyue"
+                    ]
+            runDb $ putMany ms
+
 specsWith :: forall backend m. Runner backend m => RunDb backend m -> Spec
 specsWith runDb = describe "persistent" $ do
+  describe "SafeToRemove" (safeToRemoveSpec runDb)
   it "fieldLens" $ do
       let michael = Entity undefined $ Person "Michael" 28 Nothing :: Entity Person
           michaelP1 = Person "Michael" 29 Nothing :: Person
@@ -80,7 +101,7 @@ specsWith runDb = describe "persistent" $ do
 
   it "FilterAnd []" $ runDb $ do
       let p = Person "z" 1 Nothing
-      _ <- insert p
+      insert_ p
       ps <- selectList [FilterAnd []] [Desc PersonAge]
       assertNotEmpty ps
 
@@ -133,13 +154,21 @@ specsWith runDb = describe "persistent" $ do
       Just mic29 <- get micK
       personAge mic29 @== 29
 
+      let louis = Person "Louis" 55 $ Just "brown"
+      ex0 <- exists [PersonName ==. "Louis"]
+      ex0 @== False
+      louisK <- insert louis
+      ex1 <- exists [PersonName ==. "Louis"]
+      ex1 @== True
+      delete louisK
+
       let eli = Person "Eliezer" 2 $ Just "blue"
-      _ <- insert eli
+      insert_ eli
       pasc <- selectList [] [Asc PersonAge]
       map entityVal pasc @== [eli, mic29]
 
       let abe30 = Person "Abe" 30 $ Just "black"
-      _ <- insert abe30
+      insert_ abe30
       -- pdesc <- selectList [PersonAge <. 30] [Desc PersonName]
       map entityVal pasc @== [eli, mic29]
 
@@ -173,9 +202,9 @@ specsWith runDb = describe "persistent" $ do
   it "!=." $ runDb $ do
       deleteWhere ([] :: [Filter (PersonGeneric backend)])
       let mic = Person "Michael" 25 Nothing
-      _ <- insert mic
+      insert_ mic
       let eli = Person "Eliezer" 25 (Just "Red")
-      _ <- insert eli
+      insert_ eli
 
       pne <- selectList [PersonName !=. "Michael"] []
       map entityVal pne @== [eli]
@@ -190,9 +219,9 @@ specsWith runDb = describe "persistent" $ do
   it "Double Maybe" $ runDb $ do
       deleteWhere ([] :: [Filter (PersonMayGeneric backend)])
       let mic = PersonMay (Just "Michael") Nothing
-      _ <- insert mic
+      insert_ mic
       let eli = PersonMay (Just "Eliezer") (Just "Red")
-      _ <- insert eli
+      insert_ eli
       pe <- selectList [PersonMayName ==. Nothing, PersonMayColor ==. Nothing] []
       map entityVal pe @== []
       pne <- selectList [PersonMayName !=. Nothing, PersonMayColor !=. Nothing] []
@@ -252,7 +281,7 @@ specsWith runDb = describe "persistent" $ do
 
 
   it "deleteBy" $ runDb $ do
-      _ <- insert $ Person "Michael2" 27 Nothing
+      insert_ $ Person "Michael2" 27 Nothing
       let p3 = Person "Michael3" 27 Nothing
       key3 <- insert p3
 
@@ -431,7 +460,7 @@ specsWith runDb = describe "persistent" $ do
           e4 @== Nothing
 
   it "selectFirst" $ runDb $ do
-      _ <- insert $ Person "Michael" 26 Nothing
+      insert_ $ Person "Michael" 26 Nothing
       let pOld = Person "Oldie" 75 Nothing
       kOld <- insert pOld
 
@@ -571,7 +600,7 @@ specsWith runDb = describe "persistent" $ do
           p2 = Person "E" 1 Nothing
           p3 = Person "F" 2 Nothing
       pid1 <- insert p1
-      _ <- insert p2
+      insert_ p2
       pid3 <- insert p3
       x <- selectList [PersonId <-. [pid1, pid3]] []
       liftIO $ x @?= [Entity pid1 p1, Entity pid3 p3]
@@ -616,3 +645,15 @@ specsWith runDb = describe "persistent" $ do
     it "bang" $ (return $! Strict (error "foo") 5 5) `shouldThrow` anyErrorCall
     it "tilde" $ void (return $! Strict 5 (error "foo") 5 :: IO Strict)
     it "blank" $ (return $! Strict 5 5 (error "foo")) `shouldThrow` anyErrorCall
+
+  describe "documentation syntax" $ do
+    let edef = entityDef (Proxy :: Proxy Relationship)
+    it "provides comments on entity def" $ do
+      getEntityComments edef
+        `shouldBe`
+          Just "This is a doc comment for a relationship.\nYou need to put the pipe character for each line of documentation.\nBut you can resume the doc comments afterwards.\n"
+    it "provides comments on the field" $ do
+      let [nameField, _] = getEntityFields edef
+      fieldComments nameField
+        `shouldBe`
+          Just "Fields should be documentable.\n"

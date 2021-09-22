@@ -1,59 +1,113 @@
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module PgInit (
-  runConn
+module PgInit
+    ( runConn
+    , runConn_
+    , runConnAssert
+    , runConnAssertUseConf
 
-  , MonadIO
-  , persistSettings
-  , MkPersistSettings (..)
-  , db
-  , BackendKey(..)
-  , GenerateKey(..)
+    , MonadIO
+    , persistSettings
+    , MkPersistSettings (..)
+    , BackendKey(..)
+    , GenerateKey(..)
 
-   -- re-exports
-  , module Control.Monad.Trans.Reader
-  , module Control.Monad
-  , module Database.Persist.Sql
-  , module Database.Persist
-  , module Database.Persist.Sql.Raw.QQ
-  , module Init
-  , module Test.Hspec
-  , module Test.HUnit
-  , BS.ByteString
-  , Int32, Int64
-  , liftIO
-  , mkPersist, mkMigrate, share, sqlSettings, persistLowerCase, persistUpperCase
-  , SomeException
-  , Text
-  , TestFn(..)
-  ) where
+     -- re-exports
+    , module Control.Monad.Trans.Reader
+    , module Control.Monad
+    , module Database.Persist.Sql
+    , module Database.Persist.SqlBackend
+    , module Database.Persist
+    , module Database.Persist.Sql.Raw.QQ
+    , module Init
+    , module Test.Hspec
+    , module Test.Hspec.Expectations.Lifted
+    , module Test.HUnit
+    , BS.ByteString
+    , Int32, Int64
+    , liftIO
+    , mkPersist, migrateModels, mkMigrate, share, sqlSettings, persistLowerCase, persistUpperCase
+    , mkEntityDefList
+    , setImplicitIdDef
+    , SomeException
+    , Text
+    , TestFn(..)
+    , LoggingT
+    , ResourceT
+    , UUID(..)
+    , sqlSettingsUuid
+    ) where
 
 import Init
-    ( TestFn(..), truncateTimeOfDay, truncateUTCTime
-    , truncateToMicro, arbText, liftA2, GenerateKey(..)
-    , (@/=), (@==), (==@), MonadFail
-    , assertNotEqual, assertNotEmpty, assertEmpty, asIO
-    , isTravis, RunDb
-    )
+       ( GenerateKey(..)
+       , MonadFail
+       , RunDb
+       , TestFn(..)
+       , arbText
+       , asIO
+       , assertEmpty
+       , assertNotEmpty
+       , assertNotEqual
+       , isTravis
+       , liftA2
+       , truncateTimeOfDay
+       , truncateToMicro
+       , truncateUTCTime
+       , (==@)
+       , (@/=)
+       , (@==)
+       , UUID(..)
+       , sqlSettingsUuid
+       )
 
 -- re-exports
 import Control.Exception (SomeException)
-import Control.Monad (void, replicateM, liftM, when, forM_)
+import Control.Monad (forM_, liftM, replicateM, void, when)
 import Control.Monad.Trans.Reader
-import Data.Aeson (Value(..))
-import Database.Persist.TH (mkPersist, mkMigrate, share, sqlSettings, persistLowerCase, persistUpperCase, MkPersistSettings(..))
+import Data.Aeson (ToJSON, FromJSON, Value(..))
+import Database.Persist.Postgresql.JSON ()
 import Database.Persist.Sql.Raw.QQ
-import Database.Persist.Postgresql.JSON()
+import Database.Persist.SqlBackend
+import Database.Persist.TH
+       ( MkPersistSettings(..)
+       , mkMigrate
+       , migrateModels
+       , mkPersist
+       , persistLowerCase
+       , persistUpperCase
+       , share
+       , sqlSettings
+       , setImplicitIdDef
+       , mkEntityDefList
+       )
 import Test.Hspec
+       ( Arg
+       , Spec
+       , SpecWith
+       , afterAll_
+       , before
+       , beforeAll
+       , before_
+       , describe
+       , fdescribe
+       , fit
+       , hspec
+       , it
+       )
+import Test.Hspec.Expectations.Lifted
 import Test.QuickCheck.Instances ()
+import UnliftIO
+import qualified Data.Text.Encoding as TE
 
 -- testing
-import Test.HUnit ((@?=),(@=?), Assertion, assertFailure, assertBool)
+import Test.HUnit (Assertion, assertBool, assertFailure, (@=?), (@?=))
 import Test.QuickCheck
 
 import Control.Monad (unless, (>=>))
-import Control.Monad.IO.Class
 import Control.Monad.IO.Unlift (MonadUnliftIO)
 import Control.Monad.Logger
 import Control.Monad.Trans.Resource (ResourceT, runResourceT)
@@ -85,21 +139,70 @@ persistSettings :: MkPersistSettings
 persistSettings = sqlSettings { mpsGeneric = True }
 
 runConn :: MonadUnliftIO m => SqlPersistT (LoggingT m) t -> m ()
-runConn f = do
+runConn f = runConn_ f >>= const (return ())
+
+runConn_ :: MonadUnliftIO m => SqlPersistT (LoggingT m) t -> m t
+runConn_ f = runConnInternal RunConnBasic f
+
+-- | Data type to switch between pool creation functions, to ease testing both.
+data RunConnType =
+    RunConnBasic -- ^ Use 'withPostgresqlPool'
+  | RunConnConf -- ^ Use 'withPostgresqlPoolWithConf'
+  deriving (Show, Eq)
+
+runConnInternal :: MonadUnliftIO m => RunConnType -> SqlPersistT (LoggingT m) t -> m t
+runConnInternal connType f = do
   travis <- liftIO isTravis
   let debugPrint = not travis && _debugOn
-  let printDebug = if debugPrint then print . fromLogStr else void . return
-  flip runLoggingT (\_ _ _ s -> printDebug s) $ do
-    _ <- if travis
-      then withPostgresqlPool "host=localhost port=5432 user=postgres dbname=persistent" 1 $ runSqlPool f
-      else do
-        host <- fromMaybe "localhost" <$> liftIO dockerPg
-        withPostgresqlPool ("host=" <> host <> " port=5432 user=postgres dbname=test") 1 $ runSqlPool f
-    return ()
+      printDebug = if debugPrint then print . fromLogStr else void . return
+      poolSize = 1
+  connString <- if travis
+    then do
+      pure "host=localhost port=5432 user=perstest password=perstest dbname=persistent"
+    else do
+      host <- fromMaybe "localhost" <$> liftIO dockerPg
+      pure ("host=" <> host <> " port=5432 user=postgres dbname=test")
 
-db :: SqlPersistT (LoggingT (ResourceT IO)) () -> Assertion
-db actions = do
+  flip runLoggingT (\_ _ _ s -> printDebug s) $ do
+    logInfoN (if travis then "Running in CI" else "CI not detected")
+    let go =
+            case connType of
+                RunConnBasic ->
+                    withPostgresqlPool connString poolSize $ runSqlPool f
+                RunConnConf -> do
+                    let conf = PostgresConf
+                          { pgConnStr = connString
+                          , pgPoolStripes = 1
+                          , pgPoolIdleTimeout = 60
+                          , pgPoolSize = poolSize
+                          }
+                        hooks = defaultPostgresConfHooks
+                    withPostgresqlPoolWithConf conf hooks (runSqlPool f)
+    -- horrifying hack :( postgresql is having weird connection failures in
+    -- CI, for no reason that i can determine. see this PR for notes:
+                    -- https://github.com/yesodweb/persistent/pull/1197
+    eres <- try go
+    case eres of
+        Left (err :: SomeException) -> do
+            eres' <- try go
+            case eres' of
+                Left (err' :: SomeException) ->
+                    if show err == show err'
+                    then throwIO err
+                    else throwIO err'
+                Right a ->
+                    pure a
+        Right a ->
+            pure a
+
+runConnAssert :: SqlPersistT (LoggingT (ResourceT IO)) () -> Assertion
+runConnAssert actions = do
   runResourceT $ runConn $ actions >> transactionUndo
+
+-- | Like runConnAssert, but uses the "conf" flavor of functions to test that code path.
+runConnAssertUseConf :: SqlPersistT (LoggingT (ResourceT IO)) () -> Assertion
+runConnAssertUseConf actions = do
+  runResourceT $ runConnInternal RunConnConf (actions >> transactionUndo)
 
 instance Arbitrary Value where
   arbitrary = frequency [ (1, pure Null)

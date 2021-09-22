@@ -1,6 +1,5 @@
 packages:
   persistent
-  persistent-template
   persistent-sqlite
   persistent-test
   persistent-mongoDB
@@ -8,4 +7,3 @@ packages:
   persistent-postgresql
   persistent-redis
   persistent-qq
-

@@ -1,5 +1,49 @@
 # Changelog for persistent-mysql
 
+## 2.13.0.2
+
+* Bugfix: prevent fetching constraint info from other databases during migrations [#1301](https://github.com/yesodweb/persistent/pull/1301)
+
+## 2.13.0.1
+
+* [#1275](https://github.com/yesodweb/persistent/pull/1275)
+    * Fix `SafeToRemove`
+
+## 2.13.0.0
+
+* [#1225](https://github.com/yesodweb/persistent/pull/1225)
+    * Support `persistent-2.13` changes for SqlBackend being made internal.
+    * Remove the deprecated `SomeField` type and pattern.
+
+## 2.12.1.0
+
+* Expose `openMySQLConn` for explicit reference to opened connection. [#1248](https://github.com/yesodweb/persistent/pull/1248)
+  * Makes it convenient to use with `mysql-simple`.
+
+## 2.12.0.0
+
+* Decomposed `HaskellName` into `ConstraintNameHS`, `EntityNameHS`, `FieldNameHS`. Decomposed `DBName` into `ConstraintNameDB`, `EntityNameDB`, `FieldNameDB` respectively. [#1174](https://github.com/yesodweb/persistent/pull/1174)
+
+## 2.10.3.1
+* Fix foreign key migrations [#1167] https://github.com/yesodweb/persistent/pull/1167
+  * Fix a bug where a foreign key of a field to its table was ignored.
+
+## 2.10.3
+
+* Compatibility with latest persistent
+
+## 2.10.2.3
+
+* Fix issue with multiple foreign keys on single column. [#1025](https://github.com/yesodweb/persistent/pull/1025)
+
+## 2.10.2.2
+
+* Compatibility with latest persistent-template for test suite [#1002](https://github.com/yesodweb/persistent/pull/1002/files)
+
+## 2.10.2.1
+
+* Changed persistent-mysql to use 'utf8mb4' instead of 'utf8' in migrations [#980](https://github.com/yesodweb/persistent/pull/980) @charukiewicz
+
 ## 2.10.2
 
 * Added support for GHC 8.8 [#977](https://github.com/yesodweb/persistent/pull/977)
