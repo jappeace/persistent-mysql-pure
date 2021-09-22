@@ -57,7 +57,6 @@ executable persistent-mysql-haskell-example
   build-depends:     base                  >= 4.9    && < 5
                    , persistent            >= 2.10.0 && < 3
                    , monad-logger
-                   , persistent-template
                    , persistent-mysql-haskell
                    , transformers          >= 0.5
 
@@ -80,7 +79,6 @@ test-suite test
                    , persistent
                    , persistent-mysql-haskell
                    , persistent-qq
-                   , persistent-template
                    , persistent-test
                    , bytestring
                    , containers

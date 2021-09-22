@@ -7,6 +7,11 @@
 {-# LANGUAGE QuasiQuotes                #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE DerivingStrategies         #-}
+{-# LANGUAGE StandaloneDeriving         #-}
+{-# LANGUAGE DataKinds                  #-}
+{-# LANGUAGE FlexibleInstances          #-}
+
 
 -- | Taken from http://www.yesodweb.com/book/persistent.
 module Main where
