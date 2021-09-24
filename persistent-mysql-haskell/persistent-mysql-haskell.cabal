@@ -1,5 +1,5 @@
 name:            persistent-mysql-haskell
-version:         0.6.0
+version:         0.6.0.1
 license:         MIT
 license-file:    LICENSE
 author:          Naushadh <naushadh@protonmail.com>, Felipe Lessa <felipe.lessa@gmail.com>, Michael Snoyman
@@ -70,27 +70,34 @@ test-suite test
     type:            exitcode-stdio-1.0
     main-is:         main.hs
     hs-source-dirs:  test
-    other-modules:   MyInit
-                     InsertDuplicateUpdate
-                     CustomConstraintTest
+    other-modules:   
+        MyInit
+        InsertDuplicateUpdate
+        CustomConstraintTest
+        ImplicitUuidSpec
     ghc-options:     -Wall
 
-    build-depends:   base             >= 4.9 && < 5
-                   , persistent
-                   , persistent-mysql-haskell
-                   , persistent-qq
-                   , persistent-test
-                   , bytestring
-                   , containers
-                   , fast-logger
-                   , hspec            >= 2.4
-                   , HUnit
-                   , monad-logger
-                   , QuickCheck
-                   , quickcheck-instances
-                   , resourcet
-                   , text
-                   , time
-                   , transformers
-                   , unliftio-core
+    build-depends:   
+        base             >= 4.9 && < 5
+      , aeson
+      , bytestring
+      , containers
+      , fast-logger
+      , hspec            >= 2.4
+      , http-api-data
+      , HUnit
+      , monad-logger
+      , mysql-haskell    >= 0.8
+      , path-pieces
+      , persistent
+      , persistent-mysql-haskell
+      , persistent-qq
+      , persistent-test
+      , QuickCheck
+      , quickcheck-instances
+      , resourcet
+      , text
+      , time
+      , transformers
+      , unliftio-core
     default-language: Haskell2010
