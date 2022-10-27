@@ -70,7 +70,6 @@ import Data.Int (Int64)
 import Data.List (find, groupBy, intercalate, sort)
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
-import Data.Monoid ((<>))
 import qualified Data.Monoid as Monoid
 import Data.Pool (Pool)
 import Data.Text (Text, pack)
@@ -83,6 +82,7 @@ import System.Environment (getEnvironment)
 import Database.Persist.Sql
 import qualified Database.Persist.SqlBackend as SqlBackend
 import Database.Persist.SqlBackend.Internal
+import Database.Persist.SqlBackend.StatementCache (mkSimpleStatementCache, mkStatementCache)
 import Database.Persist.Sql.Types.Internal (mkPersistBackend, makeIsolationLevelStatement)
 import qualified Database.Persist.Sql.Util as Util
 import Database.Persist.MySQLConnectInfoShowInstance ()
@@ -152,12 +152,13 @@ openMySQLConn ci@(MySQLConnectInfo innerCi _) logFunc = do
     conn <- connect' ci
     autocommit' conn False -- disable autocommit!
     smap <- newIORef $ Map.empty
+    let stCache = mkStatementCache $ mkSimpleStatementCache smap
     let backend = 
           mkPersistBackend $ 
           projectBackend $ 
           SqlBackend
           { connPrepare    = prepare' conn
-          , connStmtMap    = smap
+          , connStmtMap    = stCache
           , connInsertSql  = insertSql'
           , connInsertManySql = Nothing
           , connUpsertSql = Nothing
@@ -178,6 +179,8 @@ openMySQLConn ci@(MySQLConnectInfo innerCi _) logFunc = do
           , connLogFunc    = logFunc
           , connMaxParams = Nothing
           , connRepsertManySql = Just repsertManySql
+          , connVault = mempty
+          , connHooks = emptySqlBackendHooks
           }
     pure (conn,backend)
 
