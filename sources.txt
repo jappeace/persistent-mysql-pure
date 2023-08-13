@@ -1,8 +1,0 @@
-./persistent
-./persistent-template
-./persistent-sqlite
-./persistent-postgresql
-./persistent-mysql
-./persistent-mysql-haskell
-./persistent-mongoDB
-./persistent-zookeeper
