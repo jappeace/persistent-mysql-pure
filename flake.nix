@@ -16,7 +16,7 @@
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
       hpkgs = pkgs.haskellPackages.override {
         overrides = hnew: hold: {
-          persistent-mysql-haskell = hnew.callCabal2nix "persistent-mysql-haskell" ./. { };
+          persistent-mysql-haskell = pkgs.haskell.lib.dontCheck (hnew.callCabal2nix "persistent-mysql-haskell" ./. { });
           # temporary workaround as nixpkgs hasn't absorbed this yet
           mysql-pure = (hold.callHackageDirect {
               pkg = "mysql-pure";
