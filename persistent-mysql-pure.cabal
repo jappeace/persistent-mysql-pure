@@ -28,8 +28,9 @@ description:
   * This package does not support statements inside other
   statements.
 
-extra-source-files:
+extra-doc-files:
   ChangeLog.md
+extra-source-files:
   README.md
 
 library
