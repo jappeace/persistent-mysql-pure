@@ -86,7 +86,7 @@ test-suite test
       , http-api-data
       , HUnit
       , monad-logger
-      , mysql-haskell    >= 0.8
+      , mysql-pure      >= 0.8
       , path-pieces
       , persistent
       , persistent-mysql-haskell

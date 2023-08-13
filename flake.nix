@@ -16,15 +16,20 @@
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
       hpkgs = pkgs.haskellPackages.override {
         overrides = hnew: hold: {
-          template-project = hnew.callCabal2nix "template-project" ./. { };
+          persistent-mysql-haskell = hnew.callCabal2nix "persistent-mysql-haskell" ./. { };
+          mysql-pure = (hold.callHackageDirect {
+              pkg = "mysql-pure";
+              ver = "1.0.0";
+              sha256 = "sha256-oVJK2UmZjyhXkezp5z1aEJ1DbYdv1g4jAMfNvBdLNk0=";
+          } {});
         };
       };
     in
     {
-      defaultPackage.x86_64-linux =  hpkgs.template-project;
+      defaultPackage.x86_64-linux =  hpkgs.persistent-mysql-haskell;
       inherit pkgs;
       devShell.x86_64-linux = hpkgs.shellFor {
-        packages = ps : [ ps."template-project" ];
+        packages = ps : [ ps."persistent-mysql-haskell" ];
         withHoogle = true;
 
         buildInputs = [
