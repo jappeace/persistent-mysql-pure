@@ -16,6 +16,7 @@
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
       hpkgs = pkgs.haskellPackages.override {
         overrides = hnew: hold: {
+          # TODO Figureo out how to run the database tests in CI
           persistent-mysql-haskell = pkgs.haskell.lib.dontCheck (hnew.callCabal2nix "persistent-mysql-haskell" ./. { });
           # temporary workaround as nixpkgs hasn't absorbed this yet
           mysql-pure = (hold.callHackageDirect {
