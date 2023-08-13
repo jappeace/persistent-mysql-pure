@@ -1,7 +1,6 @@
 # persistent-mysql-pure
 
 [![hackage version](https://img.shields.io/hackage/v/persistent-mysql-pure.svg)](https://hackage.haskell.org/package/persistent-mysql-pure)
-[![Build Status](https://travis-ci.org/naushadh/persistent.svg?branch=persistent-mysql-pure)](https://travis-ci.org/naushadh/persistent)
 
 This is a fork of persistent-mysql-haskell.
 Using the latest [branch](https://github.com/chordify/persistent/tree/persistent-mysql-haskell-9.2)
