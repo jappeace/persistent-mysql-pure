@@ -17,10 +17,11 @@
       hpkgs = pkgs.haskellPackages.override {
         overrides = hnew: hold: {
           persistent-mysql-haskell = hnew.callCabal2nix "persistent-mysql-haskell" ./. { };
+          # temporary workaround as nixpkgs hasn't absorbed this yet
           mysql-pure = (hold.callHackageDirect {
               pkg = "mysql-pure";
-              ver = "1.0.0";
-              sha256 = "sha256-oVJK2UmZjyhXkezp5z1aEJ1DbYdv1g4jAMfNvBdLNk0=";
+              ver = "1.0.1";
+              sha256 = "sha256-Tf/TL0tg1gL3H4kgeFjVdzSielCwZWwRjAu2rrIhWhA=";
           } {});
         };
       };

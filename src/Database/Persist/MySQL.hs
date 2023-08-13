@@ -85,7 +85,6 @@ import Database.Persist.SqlBackend.Internal
 import Database.Persist.SqlBackend.StatementCache (mkSimpleStatementCache, mkStatementCache)
 import Database.Persist.Sql.Types.Internal (mkPersistBackend, makeIsolationLevelStatement)
 import qualified Database.Persist.Sql.Util as Util
-import Database.Persist.MySQLConnectInfoShowInstance ()
 
 import qualified Database.MySQL.Base    as MySQL
 import qualified Database.MySQL.Protocol.Escape as MySQL
