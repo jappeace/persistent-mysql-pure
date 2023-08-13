@@ -1,4 +1,12 @@
-# ChangeLog for `persistent-mysql-haskell`
+# ChangeLog for `persistent-mysql-pure`
+
+## 1.0.0
++ fork from  `persistent-mysql-haskell`.
++ Use persistent-mysql-pure under the hood.
++ Delete all other persistent stuff.
++ Add CI
++ Add autobump action for constraints
++ Add nightly build
 
 ## 0.6.0
 
