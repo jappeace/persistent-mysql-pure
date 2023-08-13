@@ -6,14 +6,14 @@ license-file:       LICENSE
 author:
   Naushadh <naushadh@protonmail.com>, Felipe Lessa <felipe.lessa@gmail.com>, Michael Snoyman
 
-maintainer:         Naushadh <naushadh@protonmail.com>
+maintainer:         Jappie <hi@jappie.me>
 synopsis:
   A pure haskell backend for the persistent library using MySQL database server.
 
 category:           Database, Yesod
 build-type:         Simple
 homepage:           http://www.yesodweb.com/book/persistent
-bug-reports:        https://github.com/naushadh/persistent/issues
+bug-reports:        https://github.com/jappeace/persistent-mysql-pure/issues
 description:
   This package contains a backend for persistent using the
   MySQL database server.  Internally it uses the @mysql-pure@
