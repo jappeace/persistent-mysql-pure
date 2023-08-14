@@ -24,6 +24,7 @@
               ver = "1.1.2";
               sha256 = "sha256-cTIXdzScFPXUyrFENv1wm+lM5/UEcrBczBtEaMFn5qw=";
           } {});
+          crypton-x509 = pkgs.haskell.lib.markUnbroken (pkgs.haskell.lib.dontCheck hold.crypton-x509);
           # need to override untill nixpkgs merges in the new tls
           # do to the cryptonite/crypton clusterfuck
           tls = (hold.callHackageDirect {
