@@ -40,7 +40,7 @@
       inherit pkgs;
       devShell.x86_64-linux = hpkgs.shellFor {
         packages = ps : [ ps."persistent-mysql-haskell" ];
-        withHoogle = true;
+        # withHoogle = true;
 
         buildInputs = [
           hpkgs.haskell-language-server
