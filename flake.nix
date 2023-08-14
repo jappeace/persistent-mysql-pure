@@ -19,10 +19,10 @@
           # TODO Figureo out how to run the database tests in CI
           persistent-mysql-haskell = pkgs.haskell.lib.dontCheck (hnew.callCabal2nix "persistent-mysql-haskell" ./. { });
           # temporary workaround as nixpkgs hasn't absorbed this yet
-          mysql-pure = (hold.callHackageDirect {
-              pkg = "mysql-pure";
-              ver = "1.0.1";
-              sha256 = "sha256-Tf/TL0tg1gL3H4kgeFjVdzSielCwZWwRjAu2rrIhWhA=";
+          mysql-haskell = (hold.callHackageDirect {
+              pkg = "mysql-haskell";
+              ver = "1.1.2";
+              sha256 = "sha256-cTIXdzScFPXUyrFENv1wm+lM5/UEcrBczBtEaMFn5qw=";
           } {});
           # need to override untill nixpkgs merges in the new tls
           # do to the cryptonite/crypton clusterfuck
