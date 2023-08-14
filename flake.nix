@@ -24,6 +24,13 @@
               ver = "1.0.1";
               sha256 = "sha256-Tf/TL0tg1gL3H4kgeFjVdzSielCwZWwRjAu2rrIhWhA=";
           } {});
+          # need to override untill nixpkgs merges in the new tls
+          # do to the cryptonite/crypton clusterfuck
+          tls = (hold.callHackageDirect {
+              pkg = "tls";
+              ver = "1.7.1";
+              sha256 = "sha256-l8+Kgx7A8zg2tl64mC7t/S0gJNCS10fQ/2I65bTMpjY=";
+          } {});
         };
       };
     in
