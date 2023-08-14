@@ -1,5 +1,8 @@
 # ChangeLog for `persistent-mysql-pure`
 
+## 1.0.1
++ depend on mysql-haskell again since I got hackage access
+
 ## 1.0.0
 + fork from  `persistent-mysql-haskell`.
 + Use persistent-mysql-pure under the hood.
