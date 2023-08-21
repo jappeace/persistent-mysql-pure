@@ -32,6 +32,5 @@ jobs:
       run: cabal update
     - name: Build using cabal
       run: cabal build all
-    # TODO figure out how to run integration tests
-    # - name: Test
-    #   run: cabal test all
+    - name: Test
+      run: cabal test all
