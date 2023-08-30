@@ -1,5 +1,8 @@
 # ChangeLog for `persistent-mysql-pure`
 
+## 1.0.2
++ update bounds
+
 ## 1.0.1
 + depend on mysql-haskell again since I got hackage access
 
