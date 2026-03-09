@@ -1,6 +1,6 @@
 # ChangeLog for `persistent-mysql-pure`
 
-## 1.1.0
+## 1.0.3
 + Support mysql-haskell 1.2.0 (tls 2.3.0, crypton 1.1.0, caching_sha2_password)
 + Widen dependency bounds for GHC 9.6/9.8/9.10/9.12
 + Replace nix flakes with npins
