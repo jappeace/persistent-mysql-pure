@@ -1,26 +1,31 @@
 on: [pull_request]
+
+permissions:
+  actions: write
+
 jobs:
   build:
 
     runs-on: ${{ matrix.os }}
 
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
-        ghc: # should mirror current stable releases: https://www.haskell.org/ghc/download.html
+        ghc:
+          - '9.12'
+          - '9.10'
+          - '9.8'
           - '9.6'
-          - '9.4'
-          - '9.2'
         os: [ubuntu-latest, macOS-latest, windows-latest]
 
     steps:
-    - uses: actions/checkout@v3
-    - uses: haskell/actions/setup@v2 # https://github.com/haskell/actions/tree/main/setup#haskellactionssetup
+    - uses: actions/checkout@v4
+    - uses: haskell-actions/setup@v2
       with:
         ghc-version: ${{ matrix.ghc }}
 
     - name: Cabal cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       env:
         cache-name: cache-cabal
       with:
@@ -35,3 +40,9 @@ jobs:
     # TODO figure out how to run integration tests
     # - name: Test
     #   run: cabal test all
+    - name: Cancel workflow on failure
+      if: failure()
+      continue-on-error: true
+      run: gh run cancel ${{ github.run_id }}
+      env:
+        GH_TOKEN: ${{ github.token }}
