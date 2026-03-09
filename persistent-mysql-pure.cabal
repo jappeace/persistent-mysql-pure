@@ -73,7 +73,7 @@ executable persistent-mysql-pure-example
 
 source-repository head
   type:     git
-  location: git://github.com/jappeace/persistent-mysql-pure.git
+  location: https://github.com/jappeace/persistent-mysql-pure.git
 
 test-suite test
   type:             exitcode-stdio-1.0
